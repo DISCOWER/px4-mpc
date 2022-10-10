@@ -20,7 +20,7 @@ cmake ..
 make
 ```
 
-## Setup Python Interface
+## Setup Python Interface - System Install
 
 This package uses the Poetry package manager to manage dependencies. To install poetry, follow the instructions [here](https://python-poetry.org/docs/#installation). Once poetry is installed, setup this package on your base Python environment with
 ```
@@ -31,12 +31,18 @@ poetry build && cd dist && pip install *.whl -U && cd ..
 To run an example, do
 ```
 python nodes/astrobee_demo.py
+python nodes/quadcopter_demo.py
 ```
 
+## Setup Python Interface - Poetry .venv Install
 If you wish to build and run the package in a Poetry virtual environment, then do instead
 ```
 poetry install
-poetry run astrobee_demo
 ```
 
+Then, to run an example, do
+```
+poetry run astrobee_demo
+poetry run quadcopter_demo
+```
 
