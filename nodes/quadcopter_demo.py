@@ -28,10 +28,10 @@ def main():
     sim_env = EmbeddedSimEnvironment(model=quad,
                                      dynamics=quad.model,
                                      controller=ctl.mpc_controller,
-                                     time=5)
+                                     time=2)
     t, y, u = sim_env.run(x0)
     sim_env.visualize()  # Visualize state propagation
-    sim_env.visualize_error()
+    # sim_env.visualize_error()
 
 
 if __name__ == '__main__':

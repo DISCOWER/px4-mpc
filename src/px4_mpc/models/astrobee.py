@@ -1,7 +1,4 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import os
 import casadi as ca
 import numpy as np
 from px4_mpc.util import *
@@ -161,7 +158,9 @@ class Astrobee(object):
         """
 
         if t == 0.0:
-            tmp = np.loadtxt('/home/roque/trajectory_quat.txt', ndmin=2)
+            this_path = os.path.abspath(os.getcwd())
+            f_path = this_path + "/config/trajectory_quat.txt"
+            tmp = np.loadtxt(f_path, ndmin=2)
             self.trajectory = tmp.reshape(
                 (self.n, int(tmp.shape[0] / self.n)), order="F")
 

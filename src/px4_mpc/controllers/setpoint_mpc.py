@@ -141,7 +141,7 @@ class SetpointMPC(object):
                 con_ineq_lb.append(xlb)
 
             # Objective Function / Cost Function
-            obj += self.running_cost(x_t, x_r, self.Q, u_t - u0, self.R)
+            obj += self.running_cost(x_t, x_r, self.Q, u_t, u0, self.R)
 
         # Terminal Cost
         obj += self.terminal_cost(opt_var['x', self.Nt], x_r, self.P)
@@ -260,6 +260,7 @@ class SetpointMPC(object):
         x = ca.MX.sym('x', self.Nx)
         xr = ca.MX.sym('xr', self.Nx)
         u = ca.MX.sym('u', self.Nu)
+        ur = ca.MX.sym('ur', self.Nu)
 
         # Prepare variables
         p = x[0:3]
@@ -280,12 +281,13 @@ class SetpointMPC(object):
         eq = (1 - ca.mtimes(qr.T, q)**2)
 
         e_vec = ca.vertcat(*[ep, ev, eq, ew])
+        e_u_vec = u - ur
 
         # Calculate running cost
         ln = ca.mtimes(ca.mtimes(e_vec.T, Q), e_vec) \
-            + ca.mtimes(ca.mtimes(u.T, R), u)
+            + ca.mtimes(ca.mtimes(e_u_vec.T, R), e_u_vec)
 
-        self.running_cost = ca.Function('ln', [x, xr, Q, u, R], [ln])
+        self.running_cost = ca.Function('ln', [x, xr, Q, u, ur, R], [ln])
 
         # Calculate terminal cost
         V = ca.mtimes(ca.mtimes(e_vec.T, P), e_vec)
@@ -305,7 +307,7 @@ class SetpointMPC(object):
 
         # Initial state
         if u0 is None:
-            u0 = np.zeros(self.Nu)
+            u0 = np.zeros([9.81 * self.model.mass, 0, 0, 0])
         if self.x_sp is None:
             self.x_sp = np.zeros(self.Nx * (self.Nt + 1))
 
@@ -353,15 +355,15 @@ class SetpointMPC(object):
         x_traj = self.model.get_static_setpoint()
         x_sp = x_traj.reshape(self.Nx, order='F')
         self.set_reference(x_sp)
-        x_pred, u_pred = self.solve_mpc(x0, u0=np.array([9.81, 0, 0, 0]))
+        x_pred, u_pred = self.solve_mpc(
+            x0, u0=np.array([9.81 * self.model.mass, 0, 0, 0]))
         x_p = np.asarray(x_pred)[:, :, 0]
         u_t = np.asarray(u_pred)[:, :, 0]
-        np.savetxt(sys.stdout, x_p, fmt="%.3f")
-        np.savetxt(sys.stdout, u_t, fmt="%.3f")
+        # np.savetxt(sys.stdout, x_p, fmt="%.3f")
+        # np.savetxt(sys.stdout, u_t, fmt="%.3f")
 
         # Calculate error to first state
-        # error = self.calculate_error(x0, self.x_sp[0:13])
-        error = 0
+        error = self.calculate_error(x0, self.x_sp[0:13])
 
         return u_pred[0], error
 
@@ -396,17 +398,11 @@ class SetpointMPC(object):
         w = x[10:]
         wr = xr[10:]
 
-        eq = 0.5 * inv_skew_np(ca.mtimes(r_mat_q_np(qr).T, r_mat_q_np(q))
-                               - ca.mtimes(r_mat_q_np(q).T, r_mat_q_np(qr)))
-
-        int_err = ca.mtimes(q_err_mat_np(qr), q)
-        eq = int_err[1:]
-
-        eq = ca.DM.ones(3, 1) * (1 - ca.mtimes(qr.T, q)**2)
+        eq = (1 - ca.mtimes(qr.T, q)**2)
 
         ew = w - wr
 
-        return np.concatenate((ep, ev, eq, ew)).reshape((12, 1))
+        return np.concatenate((ep, ev, eq, ew)).reshape((10, 1))
 
     def set_reference(self, x_sp):
         """

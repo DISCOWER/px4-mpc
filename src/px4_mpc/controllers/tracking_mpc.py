@@ -450,17 +450,11 @@ class TrackingMPC(object):
         w = x[10:]
         wr = xr[10:]
 
-        eq = 0.5 * inv_skew_np(ca.mtimes(r_mat_q_np(qr).T, r_mat_q_np(q))
-                               - ca.mtimes(r_mat_q_np(q).T, r_mat_q_np(qr)))
-
-        int_err = ca.mtimes(q_err_mat_np(qr), q)
-        eq = int_err[1:]
-
-        eq = ca.DM.ones(3, 1) * (1 - ca.mtimes(qr.T, q)**2)
+        eq = (1 - ca.mtimes(qr.T, q)**2)
 
         ew = w - wr
 
-        return np.concatenate((ep, ev, eq, ew)).reshape((12, 1))
+        return np.concatenate((ep, ev, eq, ew)).reshape((10, 1))
 
     def set_reference(self, x_sp):
         """
