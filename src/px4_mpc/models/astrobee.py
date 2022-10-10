@@ -171,7 +171,6 @@ class Astrobee(object):
         else:
             # Take a point and propagate the kinematics
             id_s = int(round(t / self.dt))
-            print(t)
             x_start = self.trajectory[:, id_s]
             x_r = self.forward_propagate(x_start, npoints)
 

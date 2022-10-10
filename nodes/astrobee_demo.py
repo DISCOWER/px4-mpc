@@ -13,7 +13,8 @@ def main():
 
     # Create MPC Solver
     MPC_HORIZON = 10
-    # TODO: inspect the MPC class
+
+    # Spawn controller
     ctl = TrackingMPC(model=abee,
                       dynamics=abee.model,
                       param='P1',
@@ -24,15 +25,16 @@ def main():
     # Test 1: Reference tracking
     x_d = abee.get_static_setpoint()
     ctl.set_reference(x_d)
+
     # Set initial state
     x0 = abee.get_initial_pose()
     sim_env = EmbeddedSimEnvironment(model=abee,
                                      dynamics=abee.model,
                                      controller=ctl.mpc_controller,
                                      time=50)
-    # t, y, u = sim_env.run(x0)
-    # sim_env.visualize()  # Visualize state propagation
-    # sim_env.visualize_error()
+    t, y, u = sim_env.run(x0)
+    sim_env.visualize()  # Visualize state propagation
+    sim_env.visualize_error()
 
     # Test 2: Activate Tracking
     tracking_ctl = TrackingMPC(model=abee,
@@ -46,9 +48,9 @@ def main():
                                               dynamics=abee.model,
                                               controller=tracking_ctl.mpc_controller,
                                               time=5)
-    # t, y, u = sim_env_tracking.run(x0)
-    # sim_env_tracking.visualize()  # Visualize state propagation
-    # sim_env_tracking.visualize_error()
+    t, y, u = sim_env_tracking.run(x0)
+    sim_env_tracking.visualize()  # Visualize state propagation
+    sim_env_tracking.visualize_error()
 
     # Test 3: Activate forward propagation
     abee.test_forward_propagation()
