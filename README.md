@@ -21,7 +21,8 @@ make
 ```
 
 ## Setup Python Interface
-To setup this package on your base Python environemnt, do
+
+This package uses the Poetry package manager to manage dependencies. To install poetry, follow the instructions [here](https://python-poetry.org/docs/#installation). Once poetry is installed, setup this package on your base Python environment with
 ```
 cd px4-mpc/
 poetry build && cd dist && pip install *.whl -U && cd ..
@@ -32,7 +33,7 @@ To run an example, do
 python nodes/astrobee_demo.py
 ```
 
-If you wish to build and run the package in a virtual environment, then do instead
+If you wish to build and run the package in a Poetry virtual environment, then do instead
 ```
 poetry install
 poetry run astrobee_demo
