@@ -45,7 +45,7 @@ def main():
     sim_env_tracking = EmbeddedSimEnvironment(model=abee,
                                               dynamics=abee.model,
                                               controller=tracking_ctl.mpc_controller,
-                                              time=80)
+                                              time=5)
     # t, y, u = sim_env_tracking.run(x0)
     # sim_env_tracking.visualize()  # Visualize state propagation
     # sim_env_tracking.visualize_error()
