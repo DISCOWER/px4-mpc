@@ -37,6 +37,7 @@ python nodes/quadcopter_demo.py
 ## Setup Python Interface - Poetry .venv Install
 If you wish to build and run the package in a Poetry virtual environment, then do instead
 ```
+cd px4-mpc/
 poetry install
 ```
 
