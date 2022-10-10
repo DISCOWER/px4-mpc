@@ -16,7 +16,7 @@ import yaml
 from px4_mpc.util import *
 
 
-class MPC(object):
+class TrackingMPC(object):
 
     def __init__(self, model, dynamics,
                  param='P1', N=10, trajectory_tracking=False,

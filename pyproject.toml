@@ -13,6 +13,7 @@ matplotlib = "^3.3.2"
 
 [tool.poetry.scripts]
 astrobee_demo = 'nodes.astrobee_demo:main'
+quadcopter_demo = 'nodes.quadcopter_demo:main'
 
 [tool.poetry.dev-dependencies]
 

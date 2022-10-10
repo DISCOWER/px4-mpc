@@ -2,6 +2,7 @@ import numpy as np
 import casadi as ca
 import matplotlib.pyplot as plt
 
+
 class EmbeddedSimEnvironment(object):
 
     def __init__(self, model, dynamics, controller, time=100.0):
@@ -35,7 +36,7 @@ class EmbeddedSimEnvironment(object):
                               self.dt) + 1  # account for 0th
         t = np.array([0])
         x_vec = np.array([x0]).reshape(self.model.n, 1)
-        u_vec = np.empty((6, 0))
+        u_vec = np.empty((self.model.m, 0))
         e_vec = np.empty((12, 0))
 
         for i in range(sim_loop_length):

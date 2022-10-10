@@ -1,5 +1,5 @@
 from px4_mpc.models.astrobee import Astrobee
-from px4_mpc.controllers.mpc import MPC
+from px4_mpc.controllers.tracking_mpc import TrackingMPC
 from px4_mpc.simulation.basic_environment import EmbeddedSimEnvironment
 
 
@@ -14,12 +14,12 @@ def main():
     # Create MPC Solver
     MPC_HORIZON = 10
     # TODO: inspect the MPC class
-    ctl = MPC(model=abee,
-              dynamics=abee.model,
-              param='P1',
-              N=MPC_HORIZON,
-              ulb=-u_lim, uub=u_lim,
-              xlb=-x_lim, xub=x_lim)
+    ctl = TrackingMPC(model=abee,
+                      dynamics=abee.model,
+                      param='P1',
+                      N=MPC_HORIZON,
+                      ulb=-u_lim, uub=u_lim,
+                      xlb=-x_lim, xub=x_lim)
 
     # Test 1: Reference tracking
     x_d = abee.get_static_setpoint()
@@ -35,13 +35,13 @@ def main():
     # sim_env.visualize_error()
 
     # Test 2: Activate Tracking
-    tracking_ctl = MPC(model=abee,
-                       dynamics=abee.model,
-                       param='P1',
-                       N=MPC_HORIZON,
-                       trajectory_tracking=True,
-                       ulb=-u_lim, uub=u_lim,
-                       xlb=-x_lim, xub=x_lim)
+    tracking_ctl = TrackingMPC(model=abee,
+                               dynamics=abee.model,
+                               param='P1',
+                               N=MPC_HORIZON,
+                               trajectory_tracking=True,
+                               ulb=-u_lim, uub=u_lim,
+                               xlb=-x_lim, xub=x_lim)
     sim_env_tracking = EmbeddedSimEnvironment(model=abee,
                                               dynamics=abee.model,
                                               controller=tracking_ctl.mpc_controller,
