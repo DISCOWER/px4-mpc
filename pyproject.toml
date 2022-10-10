@@ -8,6 +8,11 @@ authors = ["Jaeyoung Lim <jaeyoung.lim@ethz-asl.ch>, Pedro Roque <padr@kth.se>"]
 python = "^3.8,<3.10"
 casadi = "3.5.5"
 pyyaml = "^5.3.1"
+numpy = "^1.19.2,<1.23"
+matplotlib = "^3.3.2"
+
+[tool.poetry.scripts]
+astrobee_demo = 'nodes.astrobee_demo:main'
 
 [tool.poetry.dev-dependencies]
 

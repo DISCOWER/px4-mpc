@@ -21,7 +21,7 @@ make
 ```
 
 ## Setup Python Interface
-Clone this package and then run
+To setup this package on your base Python environemnt, do
 ```
 cd px4-mpc/
 poetry build && cd dist && pip install *.whl -U && cd ..
@@ -29,6 +29,13 @@ poetry build && cd dist && pip install *.whl -U && cd ..
 
 To run an example, do
 ```
-cd nodes/
-python astrobee_demo.py
+python nodes/astrobee_demo.py
 ```
+
+If you wish to build and run the package in a virtual environment, then do instead
+```
+poetry install
+poetry run astrobee_demo
+```
+
+

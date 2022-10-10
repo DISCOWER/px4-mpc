@@ -238,7 +238,7 @@ class MPC(object):
 
         if tuning_file is None:
             this_path = os.path.abspath(os.getcwd())
-            f_path = this_path + "/../config/astrobee_tuning.yaml"
+            f_path = this_path + "/config/astrobee_tuning.yaml"
         else:
             f_path = tuning_file
 
