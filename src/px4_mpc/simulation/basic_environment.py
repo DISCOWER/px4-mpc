@@ -32,8 +32,7 @@ class EmbeddedSimEnvironment(object):
         """
 
         print("Running simulation....")
-        sim_loop_length = int(self.total_sim_time /
-                              self.dt) + 1  # account for 0th
+        sim_loop_length = int(self.total_sim_time / self.dt) + 1
         t = np.array([0])
         x_vec = np.array([x0]).reshape(self.model.n, 1)
         u_vec = np.empty((self.model.m, 0))
@@ -54,9 +53,6 @@ class EmbeddedSimEnvironment(object):
             u_vec = np.append(u_vec, np.array(
                 u).reshape(self.model.m, 1), axis=1)
             e_vec = np.append(e_vec, error, axis=1)
-
-        _, error = self.controller(x_next, i * self.dt)
-        e_vec = np.append(e_vec, error, axis=1)
 
         self.t = t
         self.x_vec = x_vec

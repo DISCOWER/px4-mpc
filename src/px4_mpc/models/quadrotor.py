@@ -6,82 +6,9 @@ Customized by Pedro Roque for EL2700 Model Predictive Countrol Course
 
 from __future__ import absolute_import
 import casadi as cs
-from px4_mpc.util import *
+from px4_mpc.util import r_mat_q, xi_mat, skew
 import casadi as ca
 import numpy as np
-
-
-# class Quadrotor(object):
-#     def __init__(self, model, Nx=13, Nu=4, Nz=0, Np=0, dt=0.01):
-#         """
-#         Initializes a Quadrotors class. By default generates a discrete model
-#         with a sampling time of 0.01 seconds.
-#         """
-#         self.Nx = Nx
-#         self.Nu = Nu
-#         self.Nz = Nz
-#         self.Np = Np
-#         self.m = Nu
-#         self.n = Nx
-#         self.dt = dt
-
-#         # Inertial Parameters
-#         self.mass = 1
-#         self.J = np.diag([0.01, 0.01, 0.1])
-
-#         # Set CasADi variables
-#         x = cs.MX.sym('x', Nx)
-#         u = cs.MX.sym('u', Nu)
-#         z = cs.MX.sym('z', Nz)
-#         p = cs.MX.sym('p', Np)
-
-#         self.nonlinear_model = self.quadrotor_dynamics
-
-#         # Integration method - integrator options an be adjusted
-#         options = {"abstol": 1e-5, "reltol": 1e-9, "max_num_steps": 100,
-#                    "tf": self.dt}
-#         dae = {'x': x, 'ode': self.nonlinear_model(
-#             x, u, z, p), 'p': cs.vertcat(u, p)}
-#         self.Integrator = cs.integrator('integrator', 'cvodes', dae, options)
-
-#         # Jacobian of continuous system
-#         ode_casadi = cs.Function(
-#             "ode", [x, u, p], [self.nonlinear_model(x, u, z, p)])
-#         self.A = cs.Function('jac_x_A', [x, u, p],
-#                              [cs.jacobian(ode_casadi(x, u, p), x)])
-#         self.B = cs.Function('jac_x_B', [x, u, p],
-#                              [cs.jacobian(ode_casadi(x, u, p), u)])
-
-#         # Jacobian of exact discretization
-#         self.Ad = cs.Function('jac_x_Ad', [x, u, p], [cs.jacobian(
-#             self.Integrator(x0=x, p=cs.vertcat(u, p))['xf'], x)])
-#         self.Bd = cs.Function('jac_u_Bd', [x, u, p], [cs.jacobian(
-#             self.Integrator(x0=x, p=cs.vertcat(u, p))['xf'], u)])
-
-#     def simple_integrator(self, x, u, *_):
-#         dxdt = [
-#             x[1],
-#             u[0]
-#         ]
-#         return cs.vertcat(*dxdt)
-
-#     def quadrotor_dynamics(self, x, u, *_):
-
-
-#         return cs.vertcat(*dxdt)
-
-#     def rk4_model(self, x_t, u_t):
-#         """
-#         Runge-Kutta 4th Order discretization.
-#         :param x: state
-#         :type x: ca.MX
-#         :param u: control input
-#         :type u: ca.MX
-#         :return: state at next step
-#         :rtype: ca.MX
-#         """
-
-#         return self.Integrator(x0=x_t, p=u_t)['xf']
 
 
 class Quadrotor(object):
@@ -141,7 +68,6 @@ class Quadrotor(object):
         """
 
         # State extraction
-        p = x[0:3]
         v = x[3:6]
         q = x[6:10]
         w = x[10:]

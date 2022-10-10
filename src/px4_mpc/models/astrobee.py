@@ -1,7 +1,7 @@
 import os
 import casadi as ca
 import numpy as np
-from px4_mpc.util import *
+from px4_mpc.util import r_mat_q_np, xi_mat_np, r_mat_q, xi_mat, skew
 
 
 class Astrobee(object):
@@ -61,7 +61,6 @@ class Astrobee(object):
         """
 
         # State extraction
-        p = x[0:3]
         v = x[3:6]
         q = x[6:10]
         w = x[10:]
@@ -218,24 +217,6 @@ class Astrobee(object):
     #               Unit Tests
     # ----------------------------------------
 
-    def forward_propagation_student(self, x_s, npoints):
-        x_r = np.zeros((self.n, npoints))
-        x_r[:, 0:1] = x_s  # starting state
-        x_r[3:6, :] = x_s[3:6]  # constant speed
-        x_r[10:, :] = x_s[10:]  # constant angular velocity
-
-        for t in range(npoints - 1):
-            x_r[0:3, t + 1] = x_r[0:3, t] + x_r[3:6, t] * self.dt
-            x_r[6:10, t + 1] = x_r[6:10, t] + \
-                np.dot(xi_mat_np(x_r[6:10, t]), 0.5 * x_r[10:, t]) * self.dt
-
-        rot_mat = np.array([r_mat_q_np(x_r[6:10, i])
-                           for i in range(npoints)])[:, :, 0]
-
-        # Pb
-        x_r[0:3, :] = x_r[0:3, :] + np.transpose(rot_mat) * 0.5
-        return x_r
-
     def test_forward_propagation(self):
         """
         Unit test to check if forward propagation is correctly implemented.
@@ -243,7 +224,6 @@ class Astrobee(object):
 
         x0 = np.array([[11, 0.3, 0.4, 0, 0.1, 0, 0, 0, 0, 1, 0.1, 0, 0]]).T
         x_r = self.forward_propagate(x0, 30)
-        x_r_s = self.forward_propagation_student(x0, 30)
         xd = np.array([11.5, 0.54, 0.4, 0.0, 0.1, 0.0, 0.11971121,
                       0.0, 0.0, 0.99280876, 0.1, 0.0, 0.0])
         eps = np.linalg.norm(x_r[:, 24] - xd)

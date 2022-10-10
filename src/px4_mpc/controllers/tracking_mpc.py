@@ -13,7 +13,7 @@ import numpy as np
 import casadi as ca
 import casadi.tools as ctools
 import yaml
-from px4_mpc.util import *
+from px4_mpc.util import inv_skew, q_err_mat, r_mat_q
 
 
 class TrackingMPC(object):
