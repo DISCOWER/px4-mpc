@@ -91,11 +91,11 @@ class Quadrotor(object):
                  h=0.01,
                  **kwargs):
         """
-        Astrobee Robot, NMPC tester class.
+        Quadrotor Robot, NMPC tester class.
 
-        :param mass: mass of the Astrobee
+        :param mass: mass of the quadrotor
         :type mass: float
-        :param inertia: inertia tensor of the Astrobee
+        :param inertia: inertia tensor of the quadrotor
         :type inertia: np.diag
         :param h: sampling time of the discrete system, defaults to 0.01
         :type h: float, optional
@@ -130,7 +130,7 @@ class Quadrotor(object):
 
     def quadrotor_dynamics_quat(self, x, u):
         """
-        Astrobee nonlinear dynamics with Quaternions.
+        Quadrotor nonlinear dynamics with Quaternions.
 
         :param x: state
         :type x: ca.MX
@@ -209,7 +209,7 @@ class Quadrotor(object):
 
     def get_limits(self):
         """
-        Get Astrobee control and state limits for ISS
+        Get Quadrotor control and state bounds
 
         :return: state and control limits
         :rtype: np.ndarray, np.ndarray

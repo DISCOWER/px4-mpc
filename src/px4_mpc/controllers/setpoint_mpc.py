@@ -9,7 +9,6 @@ from __future__ import print_function
 
 import time
 import os
-import sys
 import numpy as np
 import casadi as ca
 import casadi.tools as ctools
@@ -229,25 +228,6 @@ class SetpointMPC(object):
 
         raise NotADirectoryError("Wrong directory for yaml file.")
 
-    def set_cost_functions(self):
-        """
-        Helper method to create CasADi functions for the MPC cost objective.
-        """
-        # Create functions and function variables for calculating the cost
-        Q = ca.MX.sym('Q', self.Nx, self.Nx)
-        R = ca.MX.sym('R', self.Nu, self.Nu)
-        P = ca.MX.sym('P', self.Nx, self.Nx)
-
-        x = ca.MX.sym('x', self.Nx)
-        u = ca.MX.sym('u', self.Nu)
-
-        # Instantiate function
-        self.running_cost = ca.Function('Jstage', [x, Q, u, R],
-                                        [ca.mtimes(x.T, ca.mtimes(Q, x)) + ca.mtimes(u.T, ca.mtimes(R, u))])
-
-        self.terminal_cost = ca.Function('Jtogo', [x, P],
-                                         [ca.mtimes(x.T, ca.mtimes(P, x))])
-
     def set_cost_functions_quat(self):
         """
         Helper method to create CasADi functions for the MPC cost objective.
@@ -357,10 +337,6 @@ class SetpointMPC(object):
         self.set_reference(x_sp)
         x_pred, u_pred = self.solve_mpc(
             x0, u0=np.array([9.81 * self.model.mass, 0, 0, 0]))
-        x_p = np.asarray(x_pred)[:, :, 0]
-        u_t = np.asarray(u_pred)[:, :, 0]
-        # np.savetxt(sys.stdout, x_p, fmt="%.3f")
-        # np.savetxt(sys.stdout, u_t, fmt="%.3f")
 
         # Calculate error to first state
         error = self.calculate_error(x0, self.x_sp[0:13])

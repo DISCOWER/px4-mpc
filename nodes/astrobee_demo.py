@@ -4,7 +4,7 @@ from px4_mpc.simulation.basic_environment import EmbeddedSimEnvironment
 
 
 def main():
-    # Create pendulum and controller objects
+    # Create Astrobee and controller objects
     abee = Astrobee()
     abee.test_dynamics()
 

@@ -4,7 +4,7 @@ from px4_mpc.simulation.basic_environment import EmbeddedSimEnvironment
 
 
 def main():
-    # Create pendulum and controller objects
+    # Create Quadrotor and controller objects
     quad = Quadrotor()
 
     # Instantiate controller

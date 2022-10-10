@@ -27,8 +27,8 @@ class TrackingMPC(object):
         Constructor for the MPC class.
 
         :param model: System model
-        :type model: Astrobee
-        :param dynamics: Astrobee dynamics model
+        :type model: model
+        :param dynamics: Dynamics model
         :type dynamics: ca.Function
         :param N: horizion length
         :type N: int
@@ -395,27 +395,6 @@ class TrackingMPC(object):
 
         # Calculate error to first state
         error = self.calculate_error(x0, self.x_sp[0:13])
-
-        return u_pred[0], error
-
-    def astrobee_sim_controller(self, x0, xh):
-        """
-        Controller to be used in the Astrobee simulator
-
-        :param x0: [description]
-        :type x0: [type]
-        :param xh: [description]
-        :type xh: [type]
-        :return: [description]
-        :rtype: [type]
-        """
-        x_traj = self.model.forward_propagate(xh, self.Nt + 1, radius=0.5)
-        x_sp = x_traj.reshape(self.Nx * (self.Nt + 1), order='F')
-        self.set_reference(x_sp)
-        _, u_pred = self.solve_mpc(x0)
-
-        # Calculate error to first state
-        error = self.calculate_error(x0, x_traj[:, 0])
 
         return u_pred[0], error
 
