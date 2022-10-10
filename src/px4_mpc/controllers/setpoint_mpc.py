@@ -343,6 +343,31 @@ class SetpointMPC(object):
 
         return u_pred[0], error
 
+    def mpc_thrust_rate_ctl(self, x0, t):
+        """
+        Thrust and rate controller wrapper.
+        Gets first control input to apply to the system.
+
+        :param x0: initial state
+        :type x0: np.ndarray
+        :return: control input
+        :rtype: ca.DM
+        """
+        x_traj = self.model.get_static_setpoint()
+        x_sp = x_traj.reshape(self.Nx, order='F')
+        self.set_reference(x_sp)
+        x_pred, u_pred = self.solve_mpc(
+            x0, u0=np.array([9.81 * self.model.mass, 0, 0, 0]))
+
+        # Calculate error to first state
+        error = self.calculate_error(x0, self.x_sp[0:13])
+
+        # Get [thrust, roll_rate, pitch_rate, yaw_rate]
+        ctl = np.array([u_pred[0][0], x_pred[1][10],
+                       x_pred[1][11], x_pred[1][12]]).reshape(4, 1)
+
+        return ctl, error
+
     def calculate_error(self, x, xr):
         """
         Calculate error, used for logging
