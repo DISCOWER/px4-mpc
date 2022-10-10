@@ -23,14 +23,11 @@
  *
  */
 
-
-
- /**
+/**
  *    \file   examples/simulation_environment/simple_mpc.cpp
  *    \author Boris Houska, Hans Joachim Ferreau
  *    \date   2009
  */
-
 
 #include <math.h>
 
@@ -41,10 +38,10 @@ using namespace std;
 
 USING_NAMESPACE_ACADO
 
-int main( )
+int main()
 {
-    // INTRODUCE THE VARIABLES:
-    // -------------------------
+	// INTRODUCE THE VARIABLES:
+	// -------------------------
 	DifferentialState position_x;
 	DifferentialState position_y;
 	DifferentialState position_z;
@@ -59,7 +56,7 @@ int main( )
 	Control pitch_ref;
 	Control thrust;
 
-	///TODO: Switch to online data
+	/// TODO: Switch to online data
 	// OnlineData roll_tau;
 	// OnlineData roll_gain;
 	// OnlineData pitch_tau;
@@ -78,91 +75,89 @@ int main( )
 	double pitch_gain{1.0};
 	double yaw_rate_command{0.0};
 
-    // DEFINE A DIFFERENTIAL EQUATION:
-    // -------------------------------
-    DifferentialEquation f;
+	// DEFINE A DIFFERENTIAL EQUATION:
+	// -------------------------------
+	DifferentialEquation f;
 
 	f << dot(position_x) == velocity_x;
 	f << dot(position_y) == velocity_y;
 	f << dot(position_z) == velocity_z;
-	f << dot(velocity_x) == (cos(yaw)*sin(pitch)*cos(roll)  + sin(yaw) * sin(roll)) * thrust; // - drag_coefficient_x * velocity_x + external_disturbances_x
-	f << dot(velocity_y) == (sin(yaw)*sin(pitch)*cos(roll)  - cos(yaw) * sin(roll)) * thrust; // - drag_coefficient_y * velocity_y + external_disturbances_y
-	f << dot(velocity_z) == cos(pitch)*cos(roll) * thrust - 9.81;
+	f << dot(velocity_x) == (cos(yaw) * sin(pitch) * cos(roll) + sin(yaw) * sin(roll)) * thrust; // - drag_coefficient_x * velocity_x + external_disturbances_x
+	f << dot(velocity_y) == (sin(yaw) * sin(pitch) * cos(roll) - cos(yaw) * sin(roll)) * thrust; // - drag_coefficient_y * velocity_y + external_disturbances_y
+	f << dot(velocity_z) == cos(pitch) * cos(roll) * thrust - 9.81;
 	f << dot(roll) == (1 / roll_tau) * (roll_gain * roll_ref - roll);
 	f << dot(pitch) == (1 / pitch_tau) * (pitch_gain * pitch_ref - pitch);
 	f << dot(yaw) == yaw_rate_command;
 
-    // DEFINE LEAST SQUARE FUNCTION:
-    // -----------------------------
-    Function h;
+	// DEFINE LEAST SQUARE FUNCTION:
+	// -----------------------------
+	Function h;
 
-    h << position_x;
-    h << position_y;
+	h << position_x;
+	h << position_y;
 	h << position_z;
-    h << velocity_x;
-    h << velocity_y;
-    h << velocity_z;
-    h << roll;
-    h << pitch;
-    h << roll_ref;
-	h << cos(pitch)*cos(roll) * thrust - 9.81;
+	h << velocity_x;
+	h << velocity_y;
+	h << velocity_z;
+	h << roll;
+	h << pitch;
+	h << roll_ref;
+	h << cos(pitch) * cos(roll) * thrust - 9.81;
 
-    DMatrix Q(10,10);
-    Q.setIdentity();
-	Q(0,0) = 10.0;
-	Q(1,1) = 10.0;
-	Q(1,1) = 10.0;
+	DMatrix Q(10, 10);
+	Q.setIdentity();
+	Q(0, 0) = 10.0;
+	Q(1, 1) = 10.0;
+	Q(1, 1) = 10.0;
 
 	Function hN;
-    hN << position_x;
-    hN << position_y;
+	hN << position_x;
+	hN << position_y;
 	hN << position_z;
-    hN << velocity_x;
-    hN << velocity_y;
-    hN << velocity_z;
+	hN << velocity_x;
+	hN << velocity_y;
+	hN << velocity_z;
 
-    DMatrix QN(6,6);
-    QN.setIdentity();
+	DMatrix QN(6, 6);
+	QN.setIdentity();
 
-    DVector r(10);
-    r.setAll( 0.0 );
+	DVector r(10);
+	r.setAll(0.0);
 
+	// DEFINE AN OPTIMAL CONTROL PROBLEM:
+	// ----------------------------------
+	const double t_start = 0.0;
+	const double t_end = 1.0;
 
-    // DEFINE AN OPTIMAL CONTROL PROBLEM:
-    // ----------------------------------
-    const double t_start = 0.0;
-    const double t_end   = 1.0;
+	OCP ocp(t_start, t_end, 20);
 
-    OCP ocp( t_start, t_end, 20 );
-
-    ocp.minimizeLSQ(Q, h, r);
+	ocp.minimizeLSQ(Q, h, r);
 	ocp.minimizeLSQEndTerm(QN, hN);
-	ocp.subjectTo( f );
+	ocp.subjectTo(f);
 
-	ocp.subjectTo( -M_PI_4 <= roll_ref <= M_PI_4 );
-	ocp.subjectTo( -M_PI_4 <= pitch_ref <= M_PI_4 );
-	ocp.subjectTo( 0.5 * 9.81 <= thrust <= 1.5 * 9.81 );
+	ocp.subjectTo(-M_PI_4 <= roll_ref <= M_PI_4);
+	ocp.subjectTo(-M_PI_4 <= pitch_ref <= M_PI_4);
+	ocp.subjectTo(0.5 * 9.81 <= thrust <= 1.5 * 9.81);
 
-    // SETTING UP THE (SIMULATED) PROCESS:
-    // -----------------------------------
+	// SETTING UP THE (SIMULATED) PROCESS:
+	// -----------------------------------
 	OutputFcn identity;
-	DynamicSystem dynamicSystem( f,identity );
+	DynamicSystem dynamicSystem(f, identity);
 
-	Process process( dynamicSystem,INT_RK45 );
+	Process process(dynamicSystem, INT_RK45);
 
-    // SETTING UP THE MPC CONTROLLER:
-    // ------------------------------
-	RealTimeAlgorithm alg( ocp,0.05 );
-	alg.set( MAX_NUM_ITERATIONS, 2 );
-	
+	// SETTING UP THE MPC CONTROLLER:
+	// ------------------------------
+	RealTimeAlgorithm alg(ocp, 0.05);
+	alg.set(MAX_NUM_ITERATIONS, 2);
+
 	StaticReferenceTrajectory zeroReference;
 
-	Controller controller( alg,zeroReference );
+	Controller controller(alg, zeroReference);
 
-
-    // SETTING UP THE SIMULATION ENVIRONMENT,  RUN THE EXAMPLE...
-    // ----------------------------------------------------------
-	SimulationEnvironment sim( 0.0,3.0,process,controller );
+	// SETTING UP THE SIMULATION ENVIRONMENT,  RUN THE EXAMPLE...
+	// ----------------------------------------------------------
+	SimulationEnvironment sim(0.0, 3.0, process, controller);
 
 	DVector x0(9);
 	x0(0) = 1.0;
@@ -175,32 +170,32 @@ int main( )
 	x0(7) = 0.0;
 	x0(8) = 0.0;
 
-	if (sim.init( x0 ) != SUCCESSFUL_RETURN)
-		exit( EXIT_FAILURE );
-	if (sim.run( ) != SUCCESSFUL_RETURN)
-		exit( EXIT_FAILURE );
+	if (sim.init(x0) != SUCCESSFUL_RETURN)
+		exit(EXIT_FAILURE);
+	if (sim.run() != SUCCESSFUL_RETURN)
+		exit(EXIT_FAILURE);
 
-    // ...AND PLOT THE RESULTS
-    // ----------------------------------------------------------
+	// ...AND PLOT THE RESULTS
+	// ----------------------------------------------------------
 	VariablesGrid sampledProcessOutput;
-	sim.getSampledProcessOutput( sampledProcessOutput );
+	sim.getSampledProcessOutput(sampledProcessOutput);
 
 	VariablesGrid feedbackControl;
-	sim.getFeedbackControl( feedbackControl );
+	sim.getFeedbackControl(feedbackControl);
 
 	GnuplotWindow window;
-	window.addSubplot( sampledProcessOutput(0), "X [m]" );
-	window.addSubplot( sampledProcessOutput(1), "Y [m]" );
-	window.addSubplot( sampledProcessOutput(2), "Z [m]" );
-	window.addSubplot( sampledProcessOutput(3), "X Velocity [m/s]" );
-	window.addSubplot( sampledProcessOutput(4), "Y Velocity [m/s]" );
-	window.addSubplot( sampledProcessOutput(5), "Z Velocity [m/s]" );
-	window.addSubplot( sampledProcessOutput(6), "Roll" );
-	window.addSubplot( sampledProcessOutput(7), "Pitch" );
-	window.addSubplot( sampledProcessOutput(8), "Yaw" );
+	window.addSubplot(sampledProcessOutput(0), "X [m]");
+	window.addSubplot(sampledProcessOutput(1), "Y [m]");
+	window.addSubplot(sampledProcessOutput(2), "Z [m]");
+	window.addSubplot(sampledProcessOutput(3), "X Velocity [m/s]");
+	window.addSubplot(sampledProcessOutput(4), "Y Velocity [m/s]");
+	window.addSubplot(sampledProcessOutput(5), "Z Velocity [m/s]");
+	window.addSubplot(sampledProcessOutput(6), "Roll");
+	window.addSubplot(sampledProcessOutput(7), "Pitch");
+	window.addSubplot(sampledProcessOutput(8), "Yaw");
 	// window.addSubplot( feedbackControl(1),      "Damping Force [N]" );
 	// window.addSubplot( feedbackControl(0),      "Road Excitation [m]" );
-	window.plot( );
+	window.plot();
 
-    return EXIT_SUCCESS;
+	return EXIT_SUCCESS;
 }

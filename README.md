@@ -19,3 +19,16 @@ cd build
 cmake ..
 make
 ```
+
+## Setup Python Interface
+Clone this package and then run
+```
+cd px4-mpc/
+poetry build && cd dist && pip install *.whl -U && cd ..
+```
+
+To run an example, do
+```
+cd nodes/
+python astrobee_demo.py
+```

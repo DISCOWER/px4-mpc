@@ -5,11 +5,9 @@ description = "A PX4 sample interface for MPC controllers."
 authors = ["Jaeyoung Lim <jaeyoung.lim@ethz-asl.ch>, Pedro Roque <padr@kth.se>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.8,<3.10"
 casadi = "3.5.5"
-matplotlib = "^3.5.1"
 pyyaml = "^5.3.1"
-numpy = "^1.22.2"
 
 [tool.poetry.dev-dependencies]
 
