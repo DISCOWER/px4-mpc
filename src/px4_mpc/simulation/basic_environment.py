@@ -37,7 +37,7 @@ class EmbeddedSimEnvironment(object):
         t = np.array([0])
         x_vec = np.array([x0]).reshape(self.model.n, 1)
         u_vec = np.empty((self.model.m, 0))
-        e_vec = np.empty((12, 0))
+        # e_vec = np.empty((12, 0))
 
         for i in range(sim_loop_length):
 
@@ -53,15 +53,15 @@ class EmbeddedSimEnvironment(object):
                 x_next).reshape(self.model.n, 1), axis=1)
             u_vec = np.append(u_vec, np.array(
                 u).reshape(self.model.m, 1), axis=1)
-            e_vec = np.append(e_vec, error.reshape(12, 1), axis=1)
+            # e_vec = np.append(e_vec, error.reshape(12, 1), axis=1)
 
         _, error = self.controller(x_next, i * self.dt)
-        e_vec = np.append(e_vec, error.reshape(12, 1), axis=1)
+        # e_vec = np.append(e_vec, error.reshape(12, 1), axis=1)
 
         self.t = t
         self.x_vec = x_vec
         self.u_vec = u_vec
-        self.e_vec = e_vec
+        # self.e_vec = e_vec
         self.sim_loop_length = sim_loop_length
         return t, x_vec, u_vec
 

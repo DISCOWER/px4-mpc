@@ -104,7 +104,7 @@ class Quadrotor(object):
         """
 
         # Model
-        self.nonlinear_model = self.astrobee_dynamics_quat
+        self.nonlinear_model = self.quadrotor_dynamics_quat
         self.n = 13
         self.m = 4
         self.dt = h
@@ -128,7 +128,7 @@ class Quadrotor(object):
             "jit_options": {"flags": ["-O2"]}
         }
 
-    def astrobee_dynamics_quat(self, x, u):
+    def quadrotor_dynamics_quat(self, x, u):
         """
         Astrobee nonlinear dynamics with Quaternions.
 
@@ -198,13 +198,13 @@ class Quadrotor(object):
         :return: starting state
         :rtype: np.ndarray
         """
-        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]).reshape(13, 1)
 
     def get_static_setpoint(self):
         """
         Helper function to get the initial state of Honey for setpoint stabilization.
         """
-        xd = np.array([0, 0, 0.1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+        xd = np.array([0, 0, 0.1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]).reshape(13, 1)
         return xd
 
     def get_limits(self):
@@ -215,10 +215,10 @@ class Quadrotor(object):
         :rtype: np.ndarray, np.ndarray
         """
         # MPC bounds - control
-        ulb = np.array([0, -0.1, -0.1, -0.1])
+        ulb = np.array([-0.5, -0.1, -0.1, -0.1])
         uub = np.array([self.mass * 9.81 * 4, 0.1, 0.1, 0.1])
         xlb = np.array([-3, -3, -3,
-                        -0.1, -0.1, -0.1,
+                        -1, -1, -1,
                         -1, -1, -1, -1,
                         -1, -1, -1])
         xub = -1 * xlb

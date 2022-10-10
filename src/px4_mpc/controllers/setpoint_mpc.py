@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import time
 import os
+import sys
 import numpy as np
 import casadi as ca
 import casadi.tools as ctools
@@ -140,7 +141,7 @@ class SetpointMPC(object):
                 con_ineq_lb.append(xlb)
 
             # Objective Function / Cost Function
-            obj += self.running_cost(x_t, x_r, self.Q, u_t, self.R)
+            obj += self.running_cost(x_t, x_r, self.Q, u_t - u0, self.R)
 
         # Terminal Cost
         obj += self.terminal_cost(opt_var['x', self.Nt], x_r, self.P)
@@ -252,8 +253,8 @@ class SetpointMPC(object):
         Helper method to create CasADi functions for the MPC cost objective.
         """
         # Create functions and function variables for calculating the cost
-        Q = ca.MX.sym('Q', self.Nx - 1, self.Nx - 1)
-        P = ca.MX.sym('P', self.Nx - 1, self.Nx - 1)
+        Q = ca.MX.sym('Q', self.Nx - 3, self.Nx - 3)
+        P = ca.MX.sym('P', self.Nx - 3, self.Nx - 3)
         R = ca.MX.sym('R', self.Nu, self.Nu)
 
         x = ca.MX.sym('x', self.Nx)
@@ -276,13 +277,7 @@ class SetpointMPC(object):
         ev = v - vr
         ew = w - wr
 
-        eq = 0.5 * inv_skew(ca.mtimes(r_mat_q(qr), r_mat_q(q).T)
-                            - ca.mtimes(r_mat_q(q), r_mat_q(qr).T))
-
-        int_err = ca.mtimes(q_err_mat(qr), q)
-        eq = int_err[1:]
-
-        eq = ca.MX.ones(3, 1) * (1 - ca.mtimes(qr.T, q)**2)
+        eq = (1 - ca.mtimes(qr.T, q)**2)
 
         e_vec = ca.vertcat(*[ep, ev, eq, ew])
 
@@ -358,14 +353,15 @@ class SetpointMPC(object):
         x_traj = self.model.get_static_setpoint()
         x_sp = x_traj.reshape(self.Nx, order='F')
         self.set_reference(x_sp)
-        x_pred, u_pred = self.solve_mpc(x0)
+        x_pred, u_pred = self.solve_mpc(x0, u0=np.array([9.81, 0, 0, 0]))
         x_p = np.asarray(x_pred)[:, :, 0]
         u_t = np.asarray(u_pred)[:, :, 0]
-        print(x_p.T)
-        print(u_t.T)
+        np.savetxt(sys.stdout, x_p, fmt="%.3f")
+        np.savetxt(sys.stdout, u_t, fmt="%.3f")
 
         # Calculate error to first state
-        error = self.calculate_error(x0, self.x_sp[0:13])
+        # error = self.calculate_error(x0, self.x_sp[0:13])
+        error = 0
 
         return u_pred[0], error
 

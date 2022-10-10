@@ -11,7 +11,7 @@ def main():
     ulb, uub, xlb, xub = quad.get_limits()
 
     # Create MPC Solver
-    MPC_HORIZON = 10
+    MPC_HORIZON = 15
 
     # Spawn Controller
     ctl = SetpointMPC(model=quad,
@@ -28,7 +28,7 @@ def main():
     sim_env = EmbeddedSimEnvironment(model=quad,
                                      dynamics=quad.model,
                                      controller=ctl.mpc_controller,
-                                     time=50)
+                                     time=5)
     t, y, u = sim_env.run(x0)
     sim_env.visualize()  # Visualize state propagation
     sim_env.visualize_error()
