@@ -51,11 +51,11 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True,
         ),
-        # Node(
-        #     package='rviz2',
-        #     namespace='',
-        #     executable='rviz2',
-        #     name='rviz2',
-        #     arguments=['-d', [os.path.join(get_package_share_directory('px4_offboard'), 'visualize.rviz')]]
-        # )
+        Node(
+            package='rviz2',
+            namespace='',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', [os.path.join(get_package_share_directory('px4_offboard'), 'visualize.rviz')]]
+        )
     ])

@@ -130,7 +130,7 @@ class Quadrotor(object):
         """
         Helper function to get the initial state of Honey for setpoint stabilization.
         """
-        xd = np.array([0, 0, 0.1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]).reshape(13, 1)
+        xd = np.array([0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]).reshape(13, 1)
         return xd
 
     def get_limits(self):

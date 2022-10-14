@@ -45,11 +45,25 @@ from rclpy.node import Node
 from rclpy.clock import Clock
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
 from px4_msgs.msg import OffboardControlMode
 from px4_msgs.msg import VehicleStatus
 from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleLocalPosition
 
+def vector2PoseMsg(frame_id, position, attitude):
+    pose_msg = PoseStamped()
+    # msg.header.stamp = Clock().now().nanoseconds / 1000
+    pose_msg.header.frame_id=frame_id
+    pose_msg.pose.orientation.w = attitude[0]
+    pose_msg.pose.orientation.x = attitude[1]
+    pose_msg.pose.orientation.y = attitude[2]
+    pose_msg.pose.orientation.z = attitude[3]
+    pose_msg.pose.position.x = float(position[0])
+    pose_msg.pose.position.y = float(position[1])
+    pose_msg.pose.position.z = float(position[2])
+    return pose_msg
 
 class QuadrotorMPC(Node):
 
@@ -81,6 +95,7 @@ class QuadrotorMPC(Node):
 
         self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
         # self.publisher_trajectory = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile)
+        self.predicted_path_pub = self.create_publisher(Path, '/px4_mpc/predicted_path', 10)
         timer_period = 0.02  # seconds
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
 
@@ -149,7 +164,17 @@ class QuadrotorMPC(Node):
 
         u, error, x_pred = self.ctl.mpc_controller(x0, 0.0)
 
-        # TODO: Visualize predicted trajectory
+        idx = 0
+        predicted_path_msg = Path()
+        for predicted_state in x_pred:
+            print("idx, ", idx, " shape: ", predicted_state)
+            idx = idx + 1
+                # Publish time history of the vehicle path
+            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], np.array([1.0, 0.0, 0.0, 0.0]))
+            predicted_path_msg.header = predicted_pose_msg.header
+            predicted_path_msg.poses.append(predicted_pose_msg)
+        self.predicted_path_pub.publish(predicted_path_msg)
+
         
         # if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
 #  
