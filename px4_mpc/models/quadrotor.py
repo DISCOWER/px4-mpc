@@ -143,8 +143,8 @@ class Quadrotor(object):
         # MPC bounds - control
         ulb = np.array([0, -0.1, -0.1, -0.1])
         uub = np.array([self.mass * 9.81 * 4, 0.1, 0.1, 0.1])
-        xlb = np.array([-3, -3, -3,
-                        -1, -1, -1,
+        xlb = np.array([-np.inf, -np.inf, -np.inf,
+                        -np.inf, -np.inf, -np.inf,
                         -1, -1, -1, -1,
                         -1, -1, -1])
         xub = -1 * xlb

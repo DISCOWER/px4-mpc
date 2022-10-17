@@ -170,7 +170,6 @@ class QuadrotorMPC(Node):
         idx = 0
         predicted_path_msg = Path()
         for predicted_state in x_pred:
-            print("idx, ", idx, " shape: ", predicted_state)
             idx = idx + 1
                 # Publish time history of the vehicle path
             predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], np.array([1.0, 0.0, 0.0, 0.0]))
