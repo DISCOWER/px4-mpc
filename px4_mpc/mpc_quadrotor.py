@@ -51,6 +51,7 @@ from px4_msgs.msg import OffboardControlMode
 from px4_msgs.msg import VehicleStatus
 from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleLocalPosition
+from px4_msgs.msg import VehicleRatesSetpoint
 
 def vector2PoseMsg(frame_id, position, attitude):
     pose_msg = PoseStamped()
@@ -94,7 +95,7 @@ class QuadrotorMPC(Node):
             qos_profile)
 
         self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
-        # self.publisher_trajectory = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile)
+        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, '/fmu/in/vehicle_rates_setpoint', qos_profile)
         self.predicted_path_pub = self.create_publisher(Path, '/px4_mpc/predicted_path', 10)
         timer_period = 0.02  # seconds
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
@@ -148,9 +149,11 @@ class QuadrotorMPC(Node):
         # Publish offboard control modes
         offboard_msg = OffboardControlMode()
         offboard_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-        offboard_msg.position=True
+        offboard_msg.position=False
         offboard_msg.velocity=False
         offboard_msg.acceleration=False
+        offboard_msg.attitude = False
+        offboard_msg.body_rate = True
         self.publisher_offboard_mode.publish(offboard_msg)
 
         # Test 1: Reference tracking
@@ -162,7 +165,7 @@ class QuadrotorMPC(Node):
          self.vehicle_attitude[1], self.vehicle_attitude[2], self.vehicle_attitude[3], self.vehicle_attitude[0],
          0, 0, 0]).reshape(13, 1)
 
-        u, error, x_pred = self.ctl.mpc_controller(x0, 0.0)
+        thrust_rates, error, x_pred = self.ctl.mpc_thrust_rate_ctl(x0)
 
         idx = 0
         predicted_path_msg = Path()
@@ -176,10 +179,16 @@ class QuadrotorMPC(Node):
         self.predicted_path_pub.publish(predicted_path_msg)
 
         
-        # if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
-#  
-            # trajectory_msg = TrajectorySetpoint()
-            # self.publisher_trajectory.publish(trajectory_msg)
+        if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+            setpoint_msg = VehicleRatesSetpoint()
+            setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
+            setpoint_msg.roll = thrust_rates[1]
+            setpoint_msg.pitch = -thrust_rates[2]
+            setpoint_msg.yaw = -thrust_rates[3]
+            setpoint_msg.thrust[0] = 0.0
+            setpoint_msg.thrust[1] = 0.0
+            setpoint_msg.thrust[2] = thrust_rates[1]
+            self.publisher_rates_setpoint.publish(setpoint_msg)
 
 
 def main(args=None):

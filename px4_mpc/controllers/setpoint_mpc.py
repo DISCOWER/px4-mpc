@@ -342,7 +342,7 @@ class SetpointMPC(object):
 
         return u_pred[0], error, x_pred
 
-    def mpc_thrust_rate_ctl(self, x0, t):
+    def mpc_thrust_rate_ctl(self, x0):
         """
         Thrust and rate controller wrapper.
         Gets first control input to apply to the system.
@@ -365,7 +365,7 @@ class SetpointMPC(object):
         ctl = np.array([u_pred[0][0], x_pred[1][10],
                        x_pred[1][11], x_pred[1][12]]).reshape(4, 1)
 
-        return ctl, error
+        return ctl, error, x_pred
 
     def calculate_error(self, x, xr):
         """
