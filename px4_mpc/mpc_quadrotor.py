@@ -179,14 +179,15 @@ class QuadrotorMPC(Node):
 
         
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+
             setpoint_msg = VehicleRatesSetpoint()
             setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-            setpoint_msg.roll = thrust_rates[1]
-            setpoint_msg.pitch = -thrust_rates[2]
-            setpoint_msg.yaw = -thrust_rates[3]
-            setpoint_msg.thrust[0] = 0.0
-            setpoint_msg.thrust[1] = 0.0
-            setpoint_msg.thrust[2] = thrust_rates[1]
+            setpoint_msg.roll = float(thrust_rates[1])
+            setpoint_msg.pitch = float(-thrust_rates[2])
+            setpoint_msg.yaw = float(-thrust_rates[3])
+            setpoint_msg.thrust_body[0] = 0.0
+            setpoint_msg.thrust_body[1] = 0.0
+            setpoint_msg.thrust_body[2] = float(-thrust_rates[0])
             self.publisher_rates_setpoint.publish(setpoint_msg)
 
 
