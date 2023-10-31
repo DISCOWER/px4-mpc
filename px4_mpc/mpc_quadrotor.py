@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 ############################################################################
 #
-#   Copyright (C) 2022 PX4 Development Team. All rights reserved.
+#   Copyright (C) 2023 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,8 +32,8 @@
 #
 ############################################################################
 
-from px4_mpc.models.quadrotor import Quadrotor
-from px4_mpc.controllers.setpoint_mpc import SetpointMPC
+from px4_mpc.models.multirotor_rate_model import MultirotorRateModel
+from px4_mpc.controllers.multirotor_rate_mpc import MultirotorRateMPC
 from px4_mpc.simulation.basic_environment import EmbeddedSimEnvironment
 
 __author__ = "Jaeyoung Lim"
@@ -103,20 +103,18 @@ class QuadrotorMPC(Node):
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
 
         # Create Quadrotor and controller objects
-        self.quad = Quadrotor()
-
-        # Instantiate controller
-        ulb, uub, xlb, xub = self.quad.get_limits()
+        self.model = MultirotorRateModel()
 
         # Create MPC Solver
         MPC_HORIZON = 15
 
         # Spawn Controller
-        self.ctl = SetpointMPC(model=self.quad,
-                        dynamics=self.quad.model,
-                        param='P1',
-                        N=MPC_HORIZON,
-                        ulb=ulb, uub=uub, xlb=xlb, xub=xub)
+        self.mpc = MultirotorRateMPC(self.model)
+        # self.ctl = SetpointMPC(model=self.quad,
+        #                 dynamics=self.quad.model,
+        #                 param='P1',
+        #                 N=MPC_HORIZON,
+        #                 ulb=ulb, uub=uub, xlb=xlb, xub=xub)
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
@@ -157,15 +155,14 @@ class QuadrotorMPC(Node):
         self.publisher_offboard_mode.publish(offboard_msg)
 
         # Test 1: Reference tracking
-        x_d = self.quad.get_static_setpoint()
-        self.ctl.set_reference(x_d)
+        # x_d = self.quad.get_static_setpoint()
+        # self.mpc.set_reference(x_d)
         # Set initial state
         x0 = np.array([self.vehicle_local_position[0], self.vehicle_local_position[1], self.vehicle_local_position[2],
          self.vehicle_local_velocity[0], self.vehicle_local_velocity[1], self.vehicle_local_velocity[2], 
-         self.vehicle_attitude[1], self.vehicle_attitude[2], self.vehicle_attitude[3], self.vehicle_attitude[0],
-         0, 0, 0]).reshape(13, 1)
+         self.vehicle_attitude[0], self.vehicle_attitude[1], self.vehicle_attitude[2], self.vehicle_attitude[3]]).reshape(10, 1)
 
-        thrust_rates, error, x_pred = self.ctl.mpc_thrust_rate_ctl(x0)
+        u_pred, x_pred = self.mpc.solve(x0)
 
         idx = 0
         predicted_path_msg = Path()
@@ -177,9 +174,8 @@ class QuadrotorMPC(Node):
             predicted_path_msg.poses.append(predicted_pose_msg)
         self.predicted_path_pub.publish(predicted_path_msg)
 
-        
+        thrust_rates = u_pred[0, :]        
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
-
             setpoint_msg = VehicleRatesSetpoint()
             setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
             setpoint_msg.roll = float(thrust_rates[1])
@@ -187,7 +183,7 @@ class QuadrotorMPC(Node):
             setpoint_msg.yaw = float(-thrust_rates[3])
             setpoint_msg.thrust_body[0] = 0.0
             setpoint_msg.thrust_body[1] = 0.0
-            setpoint_msg.thrust_body[2] = float(-thrust_rates[0])
+            setpoint_msg.thrust_body[2] = float(-thrust_rates[0]/25.0)
             self.publisher_rates_setpoint.publish(setpoint_msg)
 
 

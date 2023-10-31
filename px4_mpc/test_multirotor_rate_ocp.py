@@ -1,7 +1,6 @@
-#!/usr/bin/env python
 ############################################################################
 #
-#   Copyright (C) 2022 PX4 Development Team. All rights reserved.
+#   Copyright (C) 2023 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,42 +31,22 @@
 #
 ############################################################################
 
-__author__ = "Jaeyoung Lim"
-__contact__ = "jalim@ethz.ch"
+import numpy as np
+from px4_mpc.visualization import plot_multirotor
+from px4_mpc.controllers.multirotor_rate_mpc import MultirotorRateMPC
+from px4_mpc.models.multirotor_rate_model import MultirotorRateModel
 
-from launch import LaunchDescription
-from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
-import os
+def main():
+
+    model = MultirotorRateModel()
+
+    mpc_controller = MultirotorRateMPC(model)
+
+    x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    simU, simX = mpc_controller.solve(x0)
+
+    plot_multirotor(model, np.linspace(0, mpc_controller.Tf, mpc_controller.N+1), simU, simX, latexify=False)
 
 
-def generate_launch_description():
-    return LaunchDescription([
-        Node(
-            package='px4_mpc',
-            namespace='px4_mpc',
-            executable='mpc_quadrotor',
-            name='mpc_quadrotor',
-            output='screen',
-            emulate_tty=True,
-        ),
-        # Node(
-        #     package='micro_ros_agent',
-        #     executable='micro_ros_agent',
-        #     arguments=['udp4', '-p', '8888'],
-        #     parameters=[{'use_sim_time': 1}],
-        #     output='screen'),
-        Node(
-            package='px4_offboard',
-            namespace='px4_offboard',
-            executable='visualizer',
-            name='visualizer'
-        ),
-        Node(
-            package='rviz2',
-            namespace='',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', [os.path.join(get_package_share_directory('px4_offboard'), 'visualize.rviz')]]
-        )
-    ])
+if __name__ == '__main__':
+    main()

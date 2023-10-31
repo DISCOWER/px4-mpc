@@ -11,3 +11,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+.vscode/*
+
+*c_generated_code*
+*.json
