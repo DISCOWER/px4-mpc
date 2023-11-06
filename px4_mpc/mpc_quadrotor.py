@@ -174,7 +174,8 @@ class QuadrotorMPC(Node):
             predicted_path_msg.poses.append(predicted_pose_msg)
         self.predicted_path_pub.publish(predicted_path_msg)
 
-        thrust_rates = u_pred[0, :]        
+        thrust_rates = u_pred[0, :]
+        thrust_command = -(thrust_rates[0] * 0.04 + 0.1)
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
             setpoint_msg = VehicleRatesSetpoint()
             setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
@@ -183,7 +184,7 @@ class QuadrotorMPC(Node):
             setpoint_msg.yaw = float(-thrust_rates[3])
             setpoint_msg.thrust_body[0] = 0.0
             setpoint_msg.thrust_body[1] = 0.0
-            setpoint_msg.thrust_body[2] = float(-thrust_rates[0]/25.0)
+            setpoint_msg.thrust_body[2] = float(thrust_command)
             self.publisher_rates_setpoint.publish(setpoint_msg)
 
 

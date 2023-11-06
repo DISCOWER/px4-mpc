@@ -41,7 +41,7 @@ class MultirotorRateModel():
         # constants
         self.mass = 1.
         self.max_thrust = 25
-        self.max_rate = 1.5
+        self.max_rate = 0.5
 
     def get_acados_model(self) -> AcadosModel:
         def skew_symmetric(v):

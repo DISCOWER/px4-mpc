@@ -66,9 +66,9 @@ class MultirotorRateMPC():
         ocp.dims.N = N_horizon
 
         # set cost
-        Q_mat = 2*np.diag([1e3, 1e3, 1e3, 1e-2, 1e-2, 1e-2, 0.0, 0.0, 0.0, 0.0])
+        Q_mat = 2*np.diag([1e1, 1e1, 1e1, 5e-2, 5e-2, 5e-2, 0.0, 0.1, 0.1, 0.1])
         Q_e = 2*np.diag([1e3, 1e3, 1e3, 1e1, 1e1, 1e1, 0.0, 0.0, 0.0, 0.0])
-        R_mat = 2*np.diag([1e-2, 1e-2, 1e-2, 1e1])
+        R_mat = 2*np.diag([1e-1, 5e-2, 5e-2, 5e-2])
 
         # TODO: How do you add terminal costs?
 
@@ -82,7 +82,7 @@ class MultirotorRateMPC():
         ocp.cost.cost_type = 'NONLINEAR_LS'
         ocp.cost.cost_type_e = 'NONLINEAR_LS'
         ocp.cost.W = scipy.linalg.block_diag(Q_mat, R_mat)
-        ocp.cost.W_e = Q_e
+        ocp.cost.W_e = Q_mat
 
 
         ocp.model.cost_y_expr = cs.vertcat(model.x, model.u)
@@ -91,8 +91,8 @@ class MultirotorRateMPC():
         ocp.cost.yref_e = np.array([0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
         # set constraints
-        ocp.constraints.lbu = np.array([0.0, -wmax, -wmax, -wmax])
-        ocp.constraints.ubu = np.array([+Fmax,  wmax, wmax, wmax])
+        ocp.constraints.lbu = np.array([0.0, -wmax, -wmax, -0.5*wmax])
+        ocp.constraints.ubu = np.array([+Fmax,  wmax, wmax, 0.5*wmax])
         ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
         ocp.constraints.x0 = x0
