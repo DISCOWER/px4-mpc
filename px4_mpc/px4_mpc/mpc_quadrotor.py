@@ -127,7 +127,7 @@ class QuadrotorMPC(Node):
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
         self.vehicle_local_velocity = np.array([0.0, 0.0, 0.0])
-        self.setpoint_position = np.array([0.0, 0.0, 0.0])
+        self.setpoint_position = np.array([0.0, 0.0, 3.0])
 
     def vehicle_attitude_callback(self, msg):
         # TODO: handle NED->ENU transformation 
