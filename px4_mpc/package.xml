@@ -9,6 +9,8 @@
   <license>BSD-3</license>
 
   <depend>px4_msgs</depend>
+  <depend>mpc_msgs</depend>
+  <depend>px4_offboard</depend>
   <exec_depend>ros2launch</exec_depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

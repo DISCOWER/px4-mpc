@@ -51,6 +51,14 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True,
         ),
+        Node(
+            package='px4_mpc',
+            namespace='px4_mpc',
+            executable='rviz_pos_marker',
+            name='rviz_pos_marker',
+            output='screen',
+            emulate_tty=True,
+        ),
         # Node(
         #     package='micro_ros_agent',
         #     executable='micro_ros_agent',
@@ -68,6 +76,6 @@ def generate_launch_description():
             namespace='',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', [os.path.join(get_package_share_directory('px4_offboard'), 'visualize.rviz')]]
+            arguments=['-d', [os.path.join(get_package_share_directory('px4_mpc'), 'config.rviz')]]
         )
     ])
