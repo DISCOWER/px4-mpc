@@ -1,6 +1,8 @@
 # px4-mpc
 This package contains an MPC using the casadi integrated with with PX4
 
+![mpc_setpoint](https://github.com/Jaeyoung-Lim/px4-mpc/assets/5248102/35dae5bf-626e-4272-a552-5f5d7e3c04cd)
+
 ## Setup
 To build the code, clone this repository into a ros2 workspace
 Dependencies
