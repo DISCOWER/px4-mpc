@@ -40,7 +40,8 @@ class MultirotorRateModel():
 
         # constants
         self.mass = 1.
-        self.max_thrust = 25
+        hover_thrust = 0.73
+        self.max_thrust = self.mass * 9.81/hover_thrust
         self.max_rate = 0.5
 
     def get_acados_model(self) -> AcadosModel:

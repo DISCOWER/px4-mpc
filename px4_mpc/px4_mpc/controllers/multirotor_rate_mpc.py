@@ -66,9 +66,9 @@ class MultirotorRateMPC():
         ocp.dims.N = N_horizon
 
         # set cost
-        Q_mat = 2*np.diag([1e1, 1e1, 1e1, 5e-2, 5e-2, 5e-2, 0.0, 0.1, 0.1, 0.1])
-        Q_e = 2*np.diag([1e3, 1e3, 1e3, 1e1, 1e1, 1e1, 0.0, 0.0, 0.0, 0.0])
-        R_mat = 2*np.diag([1e-1, 5e-2, 5e-2, 5e-2])
+        Q_mat = 2*np.diag([1e1, 1e1, 1e1, 1e1, 1e1, 1e1, 0.0, 0.1, 0.1, 0.1])
+        Q_e = 2*np.diag([3e2, 3e2, 3e2, 1e2, 1e2, 1e2, 0.0, 0.0, 0.0, 0.0])
+        R_mat = 2*np.diag([1e1, 5e2, 5e2, 5e2])
 
         # TODO: How do you add terminal costs?
 
@@ -82,7 +82,7 @@ class MultirotorRateMPC():
         ocp.cost.cost_type = 'NONLINEAR_LS'
         ocp.cost.cost_type_e = 'NONLINEAR_LS'
         ocp.cost.W = scipy.linalg.block_diag(Q_mat, R_mat)
-        ocp.cost.W_e = Q_mat
+        ocp.cost.W_e = scipy.linalg.block_diag(Q_e)
 
 
         ocp.model.cost_y_expr = cs.vertcat(model.x, model.u)

@@ -32,5 +32,5 @@ micro-ros-agent udp4 --port 8888
 
 In order to launch the mpc quadrotor in a ros2 launchfile,
 ```
-ros2 launch px4_mpc mpc_quadrotor.launch.py 
+ros2 launch px4_mpc mpc_quadrotor_launch.py 
 ```

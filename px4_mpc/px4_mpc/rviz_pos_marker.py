@@ -51,134 +51,8 @@ from rclpy.node import Node
 from mpc_msgs.srv import SetPose
 
 
-class MinimalClientAsync(Node):
-
-    def __init__(self):
-        super().__init__('minimal_client_async')
-        self.cli = self.create_client(SetPose, '/set_pose')
-        while not self.cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('service not available, waiting again...')
-        self.req = SetPose.Request()
-
-    def send_request(self, pose):
-        self.req.pose.position.x = pose.position.x
-        self.req.pose.position.y = pose.position.y
-        self.req.pose.position.z = pose.position.z
-        self.req.pose.orientation.w = pose.orientation.w
-        self.req.pose.orientation.x = pose.orientation.x
-        self.req.pose.orientation.y = pose.orientation.y
-        self.req.pose.orientation.z = pose.orientation.z
-        self.future = self.cli.call_async(self.req)
-        rclpy.spin_until_future_complete(self, self.future)
-        return self.future.result()
-
-
-class ProcessFeedback():
-    def __init__(self, node):
-        self.marker_pose = Pose()
-        self.minimal_client = MinimalClientAsync()
-        self.node = node
-        self.br = TransformBroadcaster(self.node)
-        self.counter = 0
-        # create a timer to update the published transforms
-        timer = self.node.create_timer(0.01, self.frameCallback)
-        self.menu_handler = MenuHandler()
-
-        server = InteractiveMarkerServer(node, 'rviz_target_pose_marker')
-
-        self.menu_handler.insert('Command Pose', callback=self.processFeedback)
-        sub_menu_handle = self.menu_handler.insert('Reset')
-        # self.menu_handler.insert('Reset Position', parent=sub_menu_handle, callback=process_feedback.processFeedback)
-        # self.menu_handler.insert('Reset Orientation', parent=sub_menu_handle, callback=process_feedback.processFeedback)
-
-        position = Point(x=0.0, y=3.0, z=3.0)
-        make6DofMarker(server, self.menu_handler, self.process_feedback, True, InteractiveMarkerControl.NONE, position, True)
-
-    
-    def processFeedback(self, feedback):
-        log_prefix = (
-            f"Feedback from marker '{feedback.marker_name}' / control '{feedback.control_name}'"
-        )
-
-        log_mouse = ''
-        if feedback.mouse_point_valid:
-            log_mouse = (
-                f'{feedback.mouse_point.x}, {feedback.mouse_point.y}, '
-                f'{feedback.mouse_point.z} in frame {feedback.header.frame_id}'
-            )
-
-        if feedback.event_type == InteractiveMarkerFeedback.BUTTON_CLICK:
-            self.node.get_logger().info(f'{log_prefix}: button click at {log_mouse}')
-        elif feedback.event_type == InteractiveMarkerFeedback.MENU_SELECT:
-            if feedback.menu_entry_id == 1:
-                response = self.minimal_client.send_request(self.marker_pose)
-
-        elif feedback.event_type == InteractiveMarkerFeedback.POSE_UPDATE:
-            # node.get_logger().info(
-            #     f'{log_prefix}: pose changed\n'
-            #     f'position: '
-            #     f'{feedback.pose.position.x}, {feedback.pose.position.y}, {feedback.pose.position.z}\n'
-            #     f'orientation: '
-            #     f'{feedback.pose.orientation.w}, {feedback.pose.orientation.x}, '
-            #     f'{feedback.pose.orientation.y}, {feedback.pose.orientation.z}\n'
-            #     f'frame: {feedback.header.frame_id} '
-            #     f'time: {feedback.header.stamp.sec} sec, '
-            #     f'{feedback.header.stamp.nanosec} nsec'
-            # )
-            self.marker_pose = feedback.pose
-            # node.get_logger().info(
-            #     f'{log_prefix}: Setpose: {self.marker_pose}'
-            # )
-            
-        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_DOWN:
-            self.node.get_logger().info(f'{log_prefix}: mouse down at {log_mouse}')
-        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_UP:
-            self.node.get_logger().info(f'{log_prefix}: mouse up at {log_mouse}')
-
-    def frameCallback(self):
-        time = self.node.get_clock().now()
-        transform = TransformStamped()
-        set_message_fields(
-            transform,
-            {
-                'header': {'frame_id': 'map', 'stamp': time.to_msg()},
-                'transform': {
-                    'translation': {
-                        'x': 0.0,
-                        'y': 0.0,
-                        'z': sin(self.counter / 140.0) * 2.0,
-                    },
-                    'rotation': {
-                        'x': 0.0,
-                        'y': 0.0,
-                        'z': 0.0,
-                        'w': 1.0,
-                    },
-                },
-                'child_frame_id': 'moving_frame',
-            },
-        )
-        self.br.sendTransform(transform)
-        self.counter += 1
-
-    def alignMarker(self, feedback):
-        pose = feedback.pose
-
-        pose.position.x = round(pose.position.x - 0.5) + 0.5
-        pose.position.y = round(pose.position.y - 0.5) + 0.5
-
-        self.node.get_logger().info(
-            f'{feedback.marker_name}: aligning position = {feedback.pose.position.x}, '
-            f'{feedback.pose.position.y}, {feedback.pose.position.z} to '
-            f'{pose.position.x}, {pose.position.y}, {pose.position.z}'
-        )
-
-        self.server.setPose(feedback.marker_name, pose)
-        self.server.applyChanges()
-
 def rand(min_, max_):
     return min_ + random() * (max_ - min_)
-
 
 def makeBox(msg):
     marker = Marker()
@@ -277,12 +151,138 @@ def make6DofMarker(server, menu_handler, process_feedback, fixed, interaction_mo
         if fixed:
             control.orientation_mode = InteractiveMarkerControl.FIXED
         int_marker.controls.append(control)
-    server.insert(int_marker, feedback_callback=process_feedback.processFeedback)
+    server.insert(int_marker, feedback_callback=process_feedback)
     menu_handler.apply(server, int_marker.name)
+
+class MinimalClientAsync(Node):
+
+    def __init__(self):
+        super().__init__('minimal_client_async')
+        self.cli = self.create_client(SetPose, '/set_pose')
+        while not self.cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+        self.req = SetPose.Request()
+
+    def send_request(self, pose):
+        self.req.pose.position.x = pose.position.x
+        self.req.pose.position.y = pose.position.y
+        self.req.pose.position.z = pose.position.z
+        self.req.pose.orientation.w = pose.orientation.w
+        self.req.pose.orientation.x = pose.orientation.x
+        self.req.pose.orientation.y = pose.orientation.y
+        self.req.pose.orientation.z = pose.orientation.z
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result()
+
+
+class ProcessFeedback():
+    def __init__(self, node):
+        self.marker_pose = Pose()
+        self.minimal_client = MinimalClientAsync()
+        self.node = node
+        self.br = TransformBroadcaster(self.node)
+        self.counter = 0
+        # create a timer to update the published transforms
+        timer = self.node.create_timer(0.01, self.frameCallback)
+        self.menu_handler = MenuHandler()
+
+        self.server = InteractiveMarkerServer(node, 'rviz_target_pose_marker')
+
+        self.menu_handler.insert('Command Pose', callback=self.processFeedback)
+        sub_menu_handle = self.menu_handler.insert('Reset')
+        # self.menu_handler.insert('Reset Position', parent=sub_menu_handle, callback=process_feedback.processFeedback)
+        # self.menu_handler.insert('Reset Orientation', parent=sub_menu_handle, callback=process_feedback.processFeedback)
+
+        position = Point(x=0.0, y=3.0, z=3.0)
+        make6DofMarker(self.server, self.menu_handler, self.processFeedback, True, InteractiveMarkerControl.NONE, position, True)
+        self.server.applyChanges()
+
+    
+    def processFeedback(self, feedback):
+        log_prefix = (
+            f"Feedback from marker '{feedback.marker_name}' / control '{feedback.control_name}'"
+        )
+
+        log_mouse = ''
+        if feedback.mouse_point_valid:
+            log_mouse = (
+                f'{feedback.mouse_point.x}, {feedback.mouse_point.y}, '
+                f'{feedback.mouse_point.z} in frame {feedback.header.frame_id}'
+            )
+
+        if feedback.event_type == InteractiveMarkerFeedback.BUTTON_CLICK:
+            self.node.get_logger().info(f'{log_prefix}: button click at {log_mouse}')
+        elif feedback.event_type == InteractiveMarkerFeedback.MENU_SELECT:
+            if feedback.menu_entry_id == 1:
+                response = self.minimal_client.send_request(self.marker_pose)
+
+        elif feedback.event_type == InteractiveMarkerFeedback.POSE_UPDATE:
+            # node.get_logger().info(
+            #     f'{log_prefix}: pose changed\n'
+            #     f'position: '
+            #     f'{feedback.pose.position.x}, {feedback.pose.position.y}, {feedback.pose.position.z}\n'
+            #     f'orientation: '
+            #     f'{feedback.pose.orientation.w}, {feedback.pose.orientation.x}, '
+            #     f'{feedback.pose.orientation.y}, {feedback.pose.orientation.z}\n'
+            #     f'frame: {feedback.header.frame_id} '
+            #     f'time: {feedback.header.stamp.sec} sec, '
+            #     f'{feedback.header.stamp.nanosec} nsec'
+            # )
+            self.marker_pose = feedback.pose
+            # node.get_logger().info(
+            #     f'{log_prefix}: Setpose: {self.marker_pose}'
+            # )
+            
+        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_DOWN:
+            self.node.get_logger().info(f'{log_prefix}: mouse down at {log_mouse}')
+        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_UP:
+            self.node.get_logger().info(f'{log_prefix}: mouse up at {log_mouse}')
+
+    def frameCallback(self):
+        time = self.node.get_clock().now()
+        transform = TransformStamped()
+        set_message_fields(
+            transform,
+            {
+                'header': {'frame_id': 'map', 'stamp': time.to_msg()},
+                'transform': {
+                    'translation': {
+                        'x': 0.0,
+                        'y': 0.0,
+                        'z': sin(self.counter / 140.0) * 2.0,
+                    },
+                    'rotation': {
+                        'x': 0.0,
+                        'y': 0.0,
+                        'z': 0.0,
+                        'w': 1.0,
+                    },
+                },
+                'child_frame_id': 'moving_frame',
+            },
+        )
+        self.br.sendTransform(transform)
+        self.counter += 1
+
+    def alignMarker(self, feedback):
+        pose = feedback.pose
+
+        pose.position.x = round(pose.position.x - 0.5) + 0.5
+        pose.position.y = round(pose.position.y - 0.5) + 0.5
+
+        self.node.get_logger().info(
+            f'{feedback.marker_name}: aligning position = {feedback.pose.position.x}, '
+            f'{feedback.pose.position.y}, {feedback.pose.position.z} to '
+            f'{pose.position.x}, {pose.position.y}, {pose.position.z}'
+        )
+
+        self.server.setPose(feedback.marker_name, pose)
+        self.server.applyChanges()
 
 def main(args=None):
     rclpy.init(args=sys.argv)
-    node = rclpy.create_node('rviz_target_pose_marker')
+    node = rclpy.create_node('rviz_target_pos_marker')
 
     process_feedback = ProcessFeedback(node)
 
