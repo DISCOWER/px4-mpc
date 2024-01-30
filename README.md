@@ -1,5 +1,7 @@
 # px4-mpc
-This package contains an MPC using the casadi integrated with with PX4
+This package contains an MPC integrated with with [PX4 Autopilot](https://px4.io/) and [ROS 2](https://ros.org/).
+
+The MPC uses the [acados framework](https://github.com/acados/acados)
 
 ![mpc_setpoint](https://github.com/Jaeyoung-Lim/px4-mpc/assets/5248102/35dae5bf-626e-4272-a552-5f5d7e3c04cd)
 
@@ -10,18 +12,16 @@ Dependencies
 - [px4-offboard](https://github.com/Jaeyoung-Lim/px4-offboard) (Optional): Used for RViz visualization
 
 ```
-colcon build
+colcon build --packages-up-to px4_mpc
 ```
 
 ### Testing demos
 ```
 ros2 run px4_mpc quadrotor_demo
 ```
-```
-ros2 run px4_mpc astrobee_demo
 
-```
 ### Running MPC with PX4 SITL
+
 Run PX4 SITL
 ```
 make px4_sitl gazebo
