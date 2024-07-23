@@ -44,7 +44,6 @@ class SpacecraftWrenchModel():
         self.inertia = np.diag((0.1454, 0.1366, 0.1594))
         self.max_thrust = 1.5
         self.max_torque = 0.5
-        self.max_rate = 0.5
 
     def get_acados_model(self) -> AcadosModel:
         def skew_symmetric(v):
@@ -84,12 +83,9 @@ class SpacecraftWrenchModel():
         D_mat[1, 1] = 1
         D_mat[2, 2] = 1
         F_2d = cs.mtimes(D_mat, u)
+
         F = cs.vertcat(F_2d[0,0], F_2d[1,0], 0.0)
-
         tau = cs.vertcat(0.0, 0.0, F_2d[2,0])
-
-        # F = cs.vertcat(u[0], u[1], 0.0)
-        # tau = cs.vertcat(0.0, 0.0, u[2])
 
         # xdot
         p_dot      = cs.MX.sym('p_dot', 3)
