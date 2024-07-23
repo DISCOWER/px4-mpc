@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 ############################################################################
 #
-#   Copyright (C) 2023 PX4 Development Team. All rights reserved.
+#   Copyright (C) 2024 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -88,7 +88,7 @@ class SpacecraftMPC(Node):
         )
 
         # Get mode; rate, wrench, direct_allocation
-        self.mode = 'wrench'
+        self.mode = self.declare_parameter('mode', 'rate').value
 
         self.status_sub = self.create_subscription(
             VehicleStatus,
@@ -221,9 +221,9 @@ class SpacecraftMPC(Node):
         thrust_command = thrust_rates[0:3] * 0.07  # NOTE: Tune in thrust multiplier
         rates_setpoint_msg = VehicleRatesSetpoint()
         rates_setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-        rates_setpoint_msg.roll = 0.0
-        rates_setpoint_msg.pitch = 0.0
-        rates_setpoint_msg.yaw = 0.0
+        rates_setpoint_msg.roll  = float(thrust_rates[3])
+        rates_setpoint_msg.pitch = -float(thrust_rates[4])
+        rates_setpoint_msg.yaw   = -float(thrust_rates[5])
         rates_setpoint_msg.thrust_body[0] = float(thrust_command[0])
         rates_setpoint_msg.thrust_body[1] = -float(thrust_command[1])
         rates_setpoint_msg.thrust_body[2] = -float(thrust_command[2])
@@ -279,9 +279,6 @@ class SpacecraftMPC(Node):
         offboard_msg.position = False
         offboard_msg.velocity = False
         offboard_msg.acceleration = False
-        offboard_msg.position = False
-        offboard_msg.velocity = False
-        offboard_msg.acceleration = False
         offboard_msg.attitude = False
         offboard_msg.body_rate = False
         offboard_msg.direct_actuator = False
@@ -326,7 +323,6 @@ class SpacecraftMPC(Node):
         predicted_path_msg = Path()
         for predicted_state in x_pred:
             idx = idx + 1
-            # Publish time history of the vehicle path
             # Publish time history of the vehicle path
             predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3] + self.setpoint_position, np.array([1.0, 0.0, 0.0, 0.0]))
             predicted_path_msg.header = predicted_pose_msg.header

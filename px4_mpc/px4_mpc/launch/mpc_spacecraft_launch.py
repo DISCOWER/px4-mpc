@@ -50,6 +50,7 @@ def generate_launch_description():
             name='mpc_spacecraft',
             output='screen',
             emulate_tty=True,
+            parameters=[{'mode': 'wrench'}], # rate/wrench/direct_allocation
         ),
         Node(
             package='px4_mpc',
