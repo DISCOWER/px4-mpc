@@ -36,13 +36,13 @@ import numpy as np
 import scipy.linalg
 import casadi as cs
 
-class SpacecraftRateMPC():
+class SpacecraftDirectAllocationMPC():
     def __init__(self, model):
         self.model = model
         self.Tf = 1.0
         self.N = 50
 
-        self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         self.ocp_solver, self.integrator = self.setup(self.x0, self.N, self.Tf)
 
@@ -53,7 +53,6 @@ class SpacecraftRateMPC():
         # set model
         model = self.model.get_acados_model()
         Fmax = self.model.max_thrust
-        wmax = self.model.max_rate
 
         ocp.model = model
 
@@ -66,18 +65,12 @@ class SpacecraftRateMPC():
         ocp.dims.N = N_horizon
 
         # set cost
-        Q_mat = 2*np.diag([10e1, 10e1, 10e1, 100e1, 100e1, 100e1, 1.0, 1.0, 1.0, 1.0])
-        Q_e = 2*np.diag([30e2, 30e2, 30e2, 100e2, 100e2, 100e2, 10.0, 10.0, 10.0, 10.0])
-        R_mat = 2*np.diag([1e1, 1e1, 1e1, 1e1, 1e1, 1e1])
-
-        # TODO: How do you add terminal costs?
-
-        # the 'EXTERNAL' cost type can be used to define general cost terms
-        # NOTE: This leads to additional (exact) hessian contributions when using GAUSS_NEWTON hessian.
-        # ocp.cost.cost_type = 'EXTERNAL'
-        # ocp.cost.cost_type_e = 'EXTERNAL'
-        # ocp.model.cost_expr_ext_cost = model.x.T @ Q_mat @ model.x + model.u.T @ R_mat @ model.u
-        # ocp.model.cost_expr_ext_cost_e = model.x.T @ Q_e @ model.x
+        Q_mat = np.diag([3e1, 3e1, 3e1,
+                         2e1, 2e1, 2e2,
+                         1e2, 1e2, 1e2, 1e2,
+                         1e1, 1e1, 1e1])
+        Q_e = 20 * Q_mat
+        R_mat = np.diag([0.5e1] * 4)
 
         ocp.cost.cost_type = 'NONLINEAR_LS'
         ocp.cost.cost_type_e = 'NONLINEAR_LS'
@@ -87,18 +80,18 @@ class SpacecraftRateMPC():
 
         ocp.model.cost_y_expr = cs.vertcat(model.x, model.u)
         ocp.model.cost_y_expr_e = model.x
-        ocp.cost.yref  = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        ocp.cost.yref_e = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        ocp.cost.yref  = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        ocp.cost.yref_e = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,])
 
         # set constraints
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -wmax, -wmax, -0.5*wmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, wmax, wmax, 0.5*wmax])
-        ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
+        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -Fmax])
+        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, +Fmax])
+        ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
         ocp.constraints.x0 = x0
 
         # set options
-        ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM' # FULL_CONDENSING_QPOASES
+        ocp.solver_options.qp_solver = 'FULL_CONDENSING_DAQP' # FULL_CONDENSING_QPOASES
         # PARTIAL_CONDENSING_HPIPM, FULL_CONDENSING_QPOASES, FULL_CONDENSING_HPIPM,
         # PARTIAL_CONDENSING_QPDUNES, PARTIAL_CONDENSING_OSQP, FULL_CONDENSING_DAQP
         ocp.solver_options.hessian_approx = 'GAUSS_NEWTON' # 'GAUSS_NEWTON', 'EXACT'

@@ -49,6 +49,7 @@ from px4_msgs.msg import OffboardControlMode
 from px4_msgs.msg import VehicleStatus
 from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleAngularVelocity
+from px4_msgs.msg import VehicleAngularVelocity
 from px4_msgs.msg import VehicleLocalPosition
 from px4_msgs.msg import VehicleRatesSetpoint
 from px4_msgs.msg import ActuatorMotors
@@ -58,9 +59,11 @@ from px4_msgs.msg import VehicleThrustSetpoint
 from mpc_msgs.srv import SetPose
 
 
+
 def vector2PoseMsg(frame_id, position, attitude):
     pose_msg = PoseStamped()
     # msg.header.stamp = Clock().now().nanoseconds / 1000
+    pose_msg.header.frame_id = frame_id
     pose_msg.header.frame_id = frame_id
     pose_msg.pose.orientation.w = attitude[0]
     pose_msg.pose.orientation.x = attitude[1]
@@ -70,6 +73,7 @@ def vector2PoseMsg(frame_id, position, attitude):
     pose_msg.pose.position.y = float(position[1])
     pose_msg.pose.position.z = float(position[2])
     return pose_msg
+
 
 
 class SpacecraftMPC(Node):
@@ -102,6 +106,11 @@ class SpacecraftMPC(Node):
             '/fmu/out/vehicle_angular_velocity',
             self.vehicle_angular_velocity_callback,
             qos_profile)
+        self.angular_vel_sub = self.create_subscription(
+            VehicleAngularVelocity,
+            '/fmu/out/vehicle_angular_velocity',
+            self.vehicle_angular_velocity_callback,
+            qos_profile)
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
             '/fmu/out/vehicle_local_position',
@@ -116,6 +125,7 @@ class SpacecraftMPC(Node):
         self.publisher_thrust_setpoint = self.create_publisher(VehicleThrustSetpoint, '/fmu/in/vehicle_thrust_setpoint', qos_profile)
         self.publisher_torque_setpoint = self.create_publisher(VehicleTorqueSetpoint, '/fmu/in/vehicle_torque_setpoint', qos_profile)
         self.predicted_path_pub = self.create_publisher(Path, '/px4_mpc/predicted_path', 10)
+        self.reference_pub = self.create_publisher(Marker, "/px4_mpc/reference", 10)
         self.reference_pub = self.create_publisher(Marker, "/px4_mpc/reference", 10)
 
         timer_period = 0.02  # seconds
@@ -143,6 +153,7 @@ class SpacecraftMPC(Node):
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
         self.vehicle_angular_velocity = np.array([0.0, 0.0, 0.0])
+        self.vehicle_angular_velocity = np.array([0.0, 0.0, 0.0])
         self.vehicle_local_velocity = np.array([0.0, 0.0, 0.0])
         self.setpoint_position = np.array([1.0, 0.0, 0.0])
 
@@ -161,6 +172,12 @@ class SpacecraftMPC(Node):
         self.vehicle_local_velocity[0] = msg.vx
         self.vehicle_local_velocity[1] = -msg.vy
         self.vehicle_local_velocity[2] = -msg.vz
+
+    def vehicle_angular_velocity_callback(self, msg):
+        # TODO: handle NED->ENU transformation
+        self.vehicle_angular_velocity[0] = msg.xyz[0]
+        self.vehicle_angular_velocity[1] = -msg.xyz[1]
+        self.vehicle_angular_velocity[2] = -msg.xyz[2]
 
     def vehicle_angular_velocity_callback(self, msg):
         # TODO: handle NED->ENU transformation
@@ -262,6 +279,9 @@ class SpacecraftMPC(Node):
         offboard_msg.position = False
         offboard_msg.velocity = False
         offboard_msg.acceleration = False
+        offboard_msg.position = False
+        offboard_msg.velocity = False
+        offboard_msg.acceleration = False
         offboard_msg.attitude = False
         offboard_msg.body_rate = False
         offboard_msg.direct_actuator = False
@@ -307,6 +327,7 @@ class SpacecraftMPC(Node):
         for predicted_state in x_pred:
             idx = idx + 1
             # Publish time history of the vehicle path
+            # Publish time history of the vehicle path
             predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3] + self.setpoint_position, np.array([1.0, 0.0, 0.0, 0.0]))
             predicted_path_msg.header = predicted_pose_msg.header
             predicted_path_msg.poses.append(predicted_pose_msg)
@@ -327,6 +348,7 @@ class SpacecraftMPC(Node):
         self.setpoint_position[2] = request.pose.position.z
 
         return response
+
 
 
 def main(args=None):
