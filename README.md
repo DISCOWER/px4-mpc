@@ -17,7 +17,8 @@ If you find this package useful in an academic context, please consider citing t
   author={Roque, Pedro and Phodapol, Sujet and Krantz, Elias and Lim, Jaeyoung and Verhagen, Joris and Jiang, Frank and Dorner, David and Siegwart, Roland and Stenius, Ivan and Tibert, Gunnar and others},
   journal={arXiv preprint arXiv:2501.16973},
   year={2025}
-}```
+}
+```
 
 ## Setup
 The MPC formulation uses acados. In order to install acados, follow the following [instructions](https://docs.acados.org/installation/)
