@@ -3,7 +3,21 @@ This package contains an MPC integrated with with [PX4 Autopilot](https://px4.io
 
 The MPC uses the [acados framework](https://github.com/acados/acados)
 
-![mpc_setpoint](https://github.com/Jaeyoung-Lim/px4-mpc/assets/5248102/35dae5bf-626e-4272-a552-5f5d7e3c04cd)
+![px4-mpc](https://github.com/user-attachments/assets/6713b8e6-815f-42fe-b3a0-51708d3416e5)
+
+## Paper
+If you find this package useful in an academic context, please consider citing the paper
+
+- Roque, Pedro, Sujet Phodapol, Elias Krantz, Jaeyoung Lim, Joris Verhagen, Frank Jiang, David Dorner, Roland Siegwart, Ivan Stenius, Gunnar Tibert, Huina Mao, Jana Tumova, Christer Fuglesang, Divos V. Dimarogonas. "Towards Open-Source and Modular Space Systems with ATMOS." arXiv preprint arXiv:2501.16973 (2025).
+. [[preprint](https://arxiv.org/abs/2501.16973)]
+
+```
+@article{roque2025towards,
+  title={Towards Open-Source and Modular Space Systems with ATMOS},
+  author={Roque, Pedro and Phodapol, Sujet and Krantz, Elias and Lim, Jaeyoung and Verhagen, Joris and Jiang, Frank and Dorner, David and Siegwart, Roland and Stenius, Ivan and Tibert, Gunnar and others},
+  journal={arXiv preprint arXiv:2501.16973},
+  year={2025}
+}```
 
 ## Setup
 The MPC formulation uses acados. In order to install acados, follow the following [instructions](https://docs.acados.org/installation/)
