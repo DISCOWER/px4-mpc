@@ -137,7 +137,7 @@ class SpacecraftMPC(Node):
                 self.model = SpacecraftRateModel()
                 self.mpc = SpacecraftCasadiRateMPC(self.model)
             else:
-                raise NotImplementedError
+                raise NotImplementedError(f"Requested '{self.mode}'-MPC not implemented for '{self.framework}' framework.")
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])

@@ -54,7 +54,7 @@ def generate_launch_description():
 
     framework_arg = DeclareLaunchArgument(
         'framework',
-        default_value='casadi',
+        default_value='acados',
         description='MPC framework used for the controller (acados, casadi)'
     )
 
