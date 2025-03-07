@@ -52,6 +52,12 @@ def generate_launch_description():
         description='Mode of the controller (rate, wrench, direct_allocation)'
     )
 
+    framework_arg = DeclareLaunchArgument(
+        'framework',
+        default_value='casadi',
+        description='MPC framework used for the controller (acados, casadi)'
+    )
+
     namespace_arg = DeclareLaunchArgument(
         'namespace',
         default_value='',  # Default namespace is empty
@@ -65,11 +71,13 @@ def generate_launch_description():
     )
 
     mode = LaunchConfiguration('mode')
+    framework = LaunchConfiguration('framework')
     namespace = LaunchConfiguration('namespace')
     setpoint_from_rviz = LaunchConfiguration('setpoint_from_rviz')
 
     return LaunchDescription([
         mode_arg,
+        framework_arg,
         namespace_arg,
         setpoint_from_rviz_arg,
         Node(
@@ -81,6 +89,7 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[
                 {'mode': mode},
+                {'framework': framework},
                 {'namespace': namespace},
                 {'setpoint_from_rviz': setpoint_from_rviz}
             ]
