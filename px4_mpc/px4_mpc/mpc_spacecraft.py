@@ -80,6 +80,7 @@ class SpacecraftMPC(Node):
 
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
+        self.framework = self.declare_parameter('framework', 'acados').value
         self.sitl = True
 
         # Get namespace
@@ -113,21 +114,30 @@ class SpacecraftMPC(Node):
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
 
         # Create Spacecraft and controller objects
-        if self.mode == 'rate':
-            from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
-            from px4_mpc.controllers.spacecraft_rate_mpc import SpacecraftRateMPC
-            self.model = SpacecraftRateModel()
-            self.mpc = SpacecraftRateMPC(self.model)
-        elif self.mode == 'wrench':
-            from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
-            from px4_mpc.controllers.spacecraft_wrench_mpc import SpacecraftWrenchMPC
-            self.model = SpacecraftWrenchModel()
-            self.mpc = SpacecraftWrenchMPC(self.model)
-        elif self.mode == 'direct_allocation':
-            from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
-            from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
-            self.model = SpacecraftDirectAllocationModel()
-            self.mpc = SpacecraftDirectAllocationMPC(self.model)
+        if self.framework == 'acados':
+            if self.mode == 'rate':
+                from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
+                from px4_mpc.controllers.spacecraft_rate_mpc import SpacecraftRateMPC
+                self.model = SpacecraftRateModel()
+                self.mpc = SpacecraftRateMPC(self.model)
+            elif self.mode == 'wrench':
+                from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
+                from px4_mpc.controllers.spacecraft_wrench_mpc import SpacecraftWrenchMPC
+                self.model = SpacecraftWrenchModel()
+                self.mpc = SpacecraftWrenchMPC(self.model)
+            elif self.mode == 'direct_allocation':
+                from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
+                from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
+                self.model = SpacecraftDirectAllocationModel()
+                self.mpc = SpacecraftDirectAllocationMPC(self.model)
+        elif self.framework == 'casadi':
+            if self.mode == 'rate':
+                from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
+                from px4_mpc.controllers.spacecraft_casadi_rate_mpc import SpacecraftCasadiRateMPC
+                self.model = SpacecraftRateModel()
+                self.mpc = SpacecraftCasadiRateMPC(self.model)
+            else:
+                raise NotImplementedError(f"Requested '{self.mode}'-MPC not implemented for '{self.framework}' framework.")
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
@@ -340,7 +350,6 @@ class SpacecraftMPC(Node):
         return
 
     def cmdloop_callback(self):
-
         # Publish odometry for SITL
         if self.sitl:
             self.publish_sitl_odometry()

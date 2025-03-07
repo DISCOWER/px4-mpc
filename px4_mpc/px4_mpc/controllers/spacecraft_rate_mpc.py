@@ -130,7 +130,7 @@ class SpacecraftRateMPC():
         ocp_solver = AcadosOcpSolver(ocp, json_file = 'acados_ocp.json')
         # create an integrator with the same settings as used in the OCP solver.
         acados_integrator = AcadosSimSolver(ocp, json_file = 'acados_ocp.json')
-
+        
         return ocp_solver, acados_integrator
 
     def solve(self, x0, verbose=False, ref=None):
