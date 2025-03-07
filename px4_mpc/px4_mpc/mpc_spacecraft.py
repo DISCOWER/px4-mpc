@@ -81,7 +81,6 @@ class SpacecraftMPC(Node):
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
         self.framework = self.declare_parameter('framework', 'acados').value
-        print(f"framework: {self.framework}")
         self.sitl = True
 
         # Get namespace
@@ -133,12 +132,10 @@ class SpacecraftMPC(Node):
                 self.mpc = SpacecraftDirectAllocationMPC(self.model)
         elif self.framework == 'casadi':
             if self.mode == 'rate':
-                print("asdf")
                 from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
                 from px4_mpc.controllers.spacecraft_casadi_rate_mpc import SpacecraftCasadiRateMPC
                 self.model = SpacecraftRateModel()
                 self.mpc = SpacecraftCasadiRateMPC(self.model)
-                print("asdfasdf")
             else:
                 raise NotImplementedError
 
@@ -436,7 +433,6 @@ class SpacecraftMPC(Node):
 
         # Solve MPC
         u_pred, x_pred = self.mpc.solve(x0, ref=ref)
-        print(f"u_pred: {u_pred[0,:]}")
 
         # Colect data
         idx = 0

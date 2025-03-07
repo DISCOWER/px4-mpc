@@ -34,6 +34,7 @@
 import numpy as np
 import casadi as cs
 from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
+import time
 
 class SpacecraftCasadiRateMPC():
     def __init__(self, model:SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
@@ -115,8 +116,8 @@ class SpacecraftCasadiRateMPC():
 
         # dynamics constraints
         for i in range(self.N):
-            ocp.subject_to(self.model.get_euler_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
-            # ocp.subject_to(self.model.get_rk4_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
+            # ocp.subject_to(self.model.get_euler_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
+            ocp.subject_to(self.model.get_rk4_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
         
         # control input constraints
         u_ub = np.hstack((np.repeat([self.model.max_thrust],3),np.repeat([self.model.max_rate],3)))
@@ -161,9 +162,21 @@ class SpacecraftCasadiRateMPC():
         ocp.minimize(cost_eq)
 
         ## SOLVER SETTINGS
-        opts = {'ipopt.print_level': 1, 'print_time': 0, 'ipopt.sb': 'yes',
-                'verbose':False}
-        ocp.solver('ipopt',opts)
+        # IPOPT
+        # opts = {'ipopt.print_level': 1, 'print_time': 0, 'ipopt.sb': 'yes',
+        #         'verbose':False}
+        # ocp.solver('ipopt',opts)
+        
+        # qpoases
+        nlp_options = {
+            "qpsol": "qrqp",
+            "hessian_approximation": "gauss-newton",
+            "max_iter": 100,
+            "tol_du": 1e-2,
+            "tol_pr": 1e-2,
+            "qpsol_options": {"sparse":True, "hessian_type": "posdef", "numRefinementSteps":1}
+        }
+        ocp.solver('sqpmethod',nlp_options)
 
         return ocp
 
@@ -186,6 +199,8 @@ class SpacecraftCasadiRateMPC():
               initial_guess={'X': None, 'U': None},
               xobj=None, enable_cbf=True,
               verbose=False):
+        
+        t0 = time.time()
 
         # set initial guess if we are getting any
         if initial_guess['X'] is not None:
@@ -227,6 +242,8 @@ class SpacecraftCasadiRateMPC():
             print(f"Optimization failed: {e}") if verbose else None
             X_pred = np.zeros((self.nx, self.N+1))
             U_pred = np.zeros((self.nu, self.N))
+
+        print(f"time taken: {time.time()-t0}") if verbose else None
 
         # transpose the obtained state and control to be consistent with the acados setup
         X_pred, U_pred = X_pred.T, U_pred.T
