@@ -33,9 +33,8 @@
 
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
 import numpy as np
-import scipy.linalg
 import casadi as cs
-import time
+import os
 
 class SpacecraftDirectAllocationMPC():
     def __init__(self, model):
@@ -50,6 +49,13 @@ class SpacecraftDirectAllocationMPC():
     def setup(self, x0, N_horizon, Tf):
         # create ocp object to formulate the OCP
         ocp = AcadosOcp()
+        
+        # Set directory for code generation
+        this_file_dir = os.path.dirname(os.path.abspath(__file__))
+        package_root = os.path.abspath(os.path.join(this_file_dir, '..'))
+        codegen_dir = os.path.join(package_root, 'mpc_codegen')
+        os.makedirs(codegen_dir, exist_ok=True)
+        ocp.code_export_directory = codegen_dir
 
         # set model
         model = self.model.get_acados_model()
