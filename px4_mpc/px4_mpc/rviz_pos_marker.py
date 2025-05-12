@@ -192,7 +192,7 @@ class ProcessFeedback():
         # self.menu_handler.insert('Reset Position', parent=sub_menu_handle, callback=process_feedback.processFeedback)
         # self.menu_handler.insert('Reset Orientation', parent=sub_menu_handle, callback=process_feedback.processFeedback)
 
-        position = Point(x=0.0, y=3.0, z=3.0)
+        position = Point(x=1.0, y=1.0, z=0.0)
         make6DofMarker(self.server, self.menu_handler, self.processFeedback, True, InteractiveMarkerControl.NONE, position, True)
         self.server.applyChanges()
 
