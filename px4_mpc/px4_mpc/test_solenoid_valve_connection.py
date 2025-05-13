@@ -26,7 +26,10 @@ class MinimalPublisherPX4(Node):
 
     def __init__(self):
         super().__init__("minimal_publisher_to_px4")
-        self.namespace_prefix = ""
+        
+        # Get namespace
+        self.namespace = self.declare_parameter('namespace', '').value
+        self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
 
         # QoS profiles
         qos_profile_pub = QoSProfile(
@@ -43,7 +46,7 @@ class MinimalPublisherPX4(Node):
             depth=0,
         )
 
-        # Subscrivers
+        # Subscribers
         self.status_sub = self.create_subscription(
             VehicleStatus,
             f"{self.namespace_prefix}/fmu/out/vehicle_status",
@@ -79,6 +82,9 @@ class MinimalPublisherPX4(Node):
         self.enable_offboard_control()
         # self.enable_direct_actuator_mode()
 
+        # Must be called before arming
+        self.publish_direct_actuator_mode()
+
         # Enable arm
         self.arm()
 
@@ -87,42 +93,56 @@ class MinimalPublisherPX4(Node):
     def arm(self):
         self.get_logger().info("Arming vehicle")
         self.publish_vehicle_command(
-            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0, 0.0
+            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
+            param1 = 1.0,
+            param2 = 0.0
         )
 
     def enable_offboard_control(self):
         self.get_logger().info("Enabling offboard control")
         self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
-            1.0,
-            6.0,  # Offboard mode
+            param1 = 1.0,
+            param2 = 6.0,  # Offboard mode
         )
 
     def enable_direct_actuator_mode(self):
         self.get_logger().info("Enabling direct actuator mode")
         self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
-            1.0,
-            7.0,  # Direct actuator mode
+            param1 = 1.0,
+            param2 = 7.0,  # Direct actuator mode
         )
 
     def vehicle_status_callback(self, msg):
         self.nav_state = msg.nav_state
 
-    def publish_vehicle_command(self, command, param1=0.0, param2=0.0):
+    def publish_vehicle_command(self, command, **params) -> None:
+        """Publish a vehicle command."""
         msg = VehicleCommand()
-        msg.timestamp = int(Clock().now().nanoseconds / 1000)
         msg.command = command
-        msg.param1 = param1
-        msg.param2 = param2
-        msg.target_system = 2
+        msg.param1 = params.get("param1", 0.0)
+        msg.param2 = params.get("param2", 0.0)
+        msg.param3 = params.get("param3", 0.0)
+        msg.param4 = params.get("param4", 0.0)
+        msg.param5 = params.get("param5", 0.0)
+        msg.param6 = params.get("param6", 0.0)
+        msg.param7 = params.get("param7", 0.0)
+        msg.target_system = 1
         msg.target_component = 1
-        msg.source_system = 1  # your node ID
-        msg.source_component = 100  # your component ID
+        msg.source_system = 1
+        msg.source_component = 1
         msg.from_external = True
         self.publisher_vehicle_command.publish(msg)
         self.get_logger().info(
-            f"Sent command: {command}, param1: {param1}, param2: {param2}"
+            f"Sent command: {command}, \
+            param1: {params.get('param1', 0.0)}, \
+            param2: {params.get('param2', 0.0)}, \
+            param3: {params.get('param3', 0.0)}, \
+            param4: {params.get('param4', 0.0)}, \
+            param5: {params.get('param5', 0.0)}, \
+            param6: {params.get('param6', 0.0)}, \
+            param7: {params.get('param7', 0.0)}"
         )
 
     def publish_direct_actuator_mode(self):
