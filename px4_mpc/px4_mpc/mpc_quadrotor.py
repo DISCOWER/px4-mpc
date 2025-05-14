@@ -73,36 +73,64 @@ class QuadrotorMPC(Node):
 
     def __init__(self):
         super().__init__('minimal_publisher')
-        qos_profile = QoSProfile(
-            reliability=QoSReliabilityPolicy.RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
-            durability=QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
-            history=QoSHistoryPolicy.RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+
+        # Get namespace
+        self.namespace = self.declare_parameter('namespace', '').value
+        self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
+
+        # Get setpoint from rviz (true/false)
+        self.setpoint_from_rviz = self.declare_parameter('setpoint_from_rviz', False).value
+
+        # QoS profiles
+        qos_profile_pub = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+        qos_profile_sub = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
 
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            '/fmu/out/vehicle_status',
+            f'{self.namespace_prefix}/fmu/out/vehicle_status',
             self.vehicle_status_callback,
-            qos_profile)
+            qos_profile_sub)
 
         self.attitude_sub = self.create_subscription(
             VehicleAttitude,
-            '/fmu/out/vehicle_attitude',
+            f'{self.namespace_prefix}/fmu/out/vehicle_attitude',
             self.vehicle_attitude_callback,
-            qos_profile)
+            qos_profile_sub)
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
-            '/fmu/out/vehicle_local_position',
+            f'{self.namespace_prefix}/fmu/out/vehicle_local_position',
             self.vehicle_local_position_callback,
-            qos_profile)
+            qos_profile_sub)
 
-        self.set_pose_srv = self.create_service(SetPose, '/set_pose', self.add_set_pos_callback)
+        if self.setpoint_from_rviz:
+            self.set_pose_srv = self.create_service(
+                SetPose,
+                f'{self.namespace_prefix}/set_pose',
+                self.add_set_pos_callback
+            )
+        else:
+            self.setpoint_pose_sub = self.create_subscription(
+                PoseStamped,
+                f'{self.namespace_prefix}/px4_mpc/setpoint_pose',
+                self.get_setpoint_pose_callback,
+                0
+            )
 
-        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
-        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, '/fmu/in/vehicle_rates_setpoint', qos_profile)
-        self.predicted_path_pub = self.create_publisher(Path, '/px4_mpc/predicted_path', 10)
-        self.reference_pub = self.create_publisher(Marker, "/px4_mpc/reference", 10
+        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, f'{self.namespace_prefix}/fmu/in/offboard_control_mode', qos_profile_pub)
+        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, f'{self.namespace_prefix}/fmu/in/vehicle_rates_setpoint', qos_profile_pub)
+        self.predicted_path_pub = self.create_publisher(Path, f'{self.namespace_prefix}/px4_mpc/predicted_path', 10)
+        self.reference_pub = self.create_publisher(Marker, f'{self.namespace_prefix}/px4_mpc/reference', 10
         )
 
         timer_period = 0.02  # seconds
