@@ -28,6 +28,7 @@ setup(
                 'mpc_spacecraft = px4_mpc.mpc_spacecraft:main',
                 'test_setpoints = px4_mpc.test.test_setpoints:main',
                 'rviz_pos_marker = px4_mpc.rviz_pos_marker:main',
+                'test_solenoid_valve_connection = px4_mpc.test_solenoid_valve_connection:main',
         ],
     },
 )
