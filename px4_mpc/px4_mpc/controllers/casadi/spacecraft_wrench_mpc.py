@@ -33,18 +33,18 @@
 
 import numpy as np
 import casadi as cs
-from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
+from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
 import time
 
 
-class SpacecraftRateMPC:
+class SpacecraftWrenchMPC:
     """
     Model Predictive Controller for spacecraft attitude control using rate control inputs.
     This controller uses a discrete-time model of the spacecraft and solves an optimal control problem
     to minimize the tracking error of the spacecraft's state to a reference trajectory.
     """
 
-    def __init__(self, model: SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
+    def __init__(self, _, Tf=1.0, N=10, add_cbf=False):
         """
         Initialize the MPC controller.
 
@@ -53,7 +53,7 @@ class SpacecraftRateMPC:
         :param N: Number of control intervals in the prediction horizon.
         :param add_cbf: Boolean indicating whether to add a collision avoidance CBF.
         """
-        self.model = model
+        self.model = SpacecraftWrenchModel(six_dof=True)
 
         self.Tf = Tf
         self.N = N
@@ -61,28 +61,25 @@ class SpacecraftRateMPC:
 
         self.add_cbf = add_cbf
 
-        self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-        self.nx = model.nx
-        self.nu = model.nu
-        self.ny = self.nx + self.nu
-        self.ny_e = self.nx
+        self.nx = self.model.nx
+        self.nu = self.model.nu
+        print("Mode: ", self.nu)
+
+        self.u_ub = np.hstack(
+            (np.repeat([self.model.max_thrust], 3), np.repeat([self.model.max_torque], 3))
+        )
+        self.u_lb = -self.u_ub
 
         self.params = {}
         self.vars = {}
 
         self.ocp = self.setup()
 
-        self.Q = np.diag([5e0, 5e0, 5e0, 8e-1, 8e-1, 8e-1, 8e3])
+        self.Q = np.diag([5e0, 5e0, 5e0, 8e-1, 8e-1, 8e-1, 8e3, 10e0, 10e0, 10e0])
         self.Q_e = 10 * self.Q
         self.R = 2 * np.diag([1e-2, 1e-2, 1e-2, 2e0, 2e0, 2e0])
-
-        if self.add_cbf:
-            from px4_mpc.controllers.casadi.collision_avoidance.cbf import (
-                CollisionAvoidanceCBF,
-            )
-
-            self.avoidance = CollisionAvoidanceCBF(model)
 
     def setup(self):
         """
@@ -120,19 +117,9 @@ class SpacecraftRateMPC:
             )
 
         # control input constraints
-        u_ub = np.hstack(
-            (np.repeat([self.model.max_thrust], 3), np.repeat([self.model.max_rate], 3))
-        )
-        u_lb = -u_ub
         for i in range(self.N):
-            ocp.subject_to(u_lb <= U[:, i])
-            ocp.subject_to(U[:, i] <= u_ub)
-
-        # potential collision avoidance CBF constraint
-        if self.add_cbf:
-            ocp, params, delta = self.avoidance.setup(ocp, X, U)
-            self.vars["delta"] = delta
-            self.params.update(params)
+            ocp.subject_to(self.u_lb <= U[:, i])
+            ocp.subject_to(U[:, i] <= self.u_ub)
 
         # --- COST
         # standard trajectory tracking cost
@@ -141,10 +128,6 @@ class SpacecraftRateMPC:
             cost_eq += self.calculate_state_error(X[:, i], xref[:, i], Q)
             cost_eq += U[:, i].T @ R @ U[:, i]
         cost_eq += self.calculate_state_error(X[:, -1], xref[:, -1], Q_e)
-
-        # potential CBF slack cost
-        if self.add_cbf:
-            cost_eq += 100 * delta
 
         # and minimize the sum of the costs
         ocp.minimize(cost_eq)
@@ -177,6 +160,8 @@ class SpacecraftRateMPC:
         es = x - xref
         es = es[0:6]
         cost_es = es.T @ Q[0:6, 0:6] @ es
+        cost_ew = x[3:6] - xref[3:6]
+        cost_es += cost_ew.T @ Q[7:10, 7:10] @ cost_ew
 
         # quaternion cost
         q = x[6:10].reshape((4, 1))
@@ -189,7 +174,7 @@ class SpacecraftRateMPC:
     def solve(self, x0, ref,
               weights={"Q": None, "Q_e": None, "R": None},
               initial_guess={"X": None, "U": None},
-              xobj=None, enable_cbf=True, verbose=False):
+              verbose=False):
 
         t0 = time.time()
 
@@ -203,7 +188,7 @@ class SpacecraftRateMPC:
         self.ocp.set_value(self.params["x0"], x0)
 
         # set setpoints parameter
-        self.ocp.set_value(self.params["xref"], ref[:10, :])
+        self.ocp.set_value(self.params["xref"], ref[:13, :])
 
         # set cost matrices if we are getting any
         Q = self.Q if weights["Q"] is None else weights["Q"]
@@ -212,20 +197,6 @@ class SpacecraftRateMPC:
         self.ocp.set_value(self.params["Q"], Q)
         self.ocp.set_value(self.params["Q_e"], Q_e)
         self.ocp.set_value(self.params["R"], R)
-
-        # set other object parameters if we should add the cbf (otherwise these
-        # parameters do not exist)
-        if xobj is not None and self.add_cbf:
-            self.ocp.set_value(self.params["X_o"], xobj)
-            self.ocp.set_value(self.params["U_o"], np.zeros((self.nu, 1)))
-            # sometimes we might wish to disable the cbf under certain conditions
-            # to enable this, we add a significant slack to the CBF constraint
-            if enable_cbf:
-                self.ocp.set_value(self.params["OffSwitch"], 0)
-            else:
-                self.ocp.set_value(
-                    self.params["OffSwitch"], 10000
-                )  # make it a trivial constraint
 
         try:
             sol = self.ocp.solve()
@@ -240,4 +211,5 @@ class SpacecraftRateMPC:
 
         # transpose the obtained state and control to be consistent with the acados setup
         X_pred, U_pred = X_pred.T, U_pred.T
+        print("U_PRED: ", U_pred)
         return U_pred, X_pred

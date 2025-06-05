@@ -128,7 +128,7 @@ class SpacecraftMPC(Node):
     def set_publishers_subscribers(self, qos_profile_pub, qos_profile_sub):
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            f'{self.namespace_prefix}/fmu/out/vehicle_status',
+            f'{self.namespace_prefix}/fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
 
@@ -270,8 +270,10 @@ class SpacecraftMPC(Node):
         torque_outputs_msg = VehicleTorqueSetpoint()
         torque_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
-        torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        # thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
+        # torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -u_pred[0, 2]]
+        torque_outputs_msg.xyz = [u_pred[0, 3], -u_pred[0, 4], -u_pred[0, 5]]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
         self.publisher_torque_setpoint.publish(torque_outputs_msg)
@@ -413,23 +415,25 @@ class SpacecraftMPC(Node):
         u_pred, x_pred = self.mpc.solve(x0, ref=ref)
 
         # Colect data
-        idx = 0
-        predicted_path_msg = Path()
-        for predicted_state in x_pred:
-            idx = idx + 1
-            # Publish time history of the vehicle path
-            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
-            predicted_path_msg.header = predicted_pose_msg.header
-            predicted_path_msg.poses.append(predicted_pose_msg)
-        self.predicted_path_pub.publish(predicted_path_msg)
-        self.publish_reference(self.reference_pub, self.setpoint_position)
-
+        # idx = 0
+        # predicted_path_msg = Path()
+        # for predicted_state in x_pred:
+        #     idx = idx + 1
+        #     # Publish time history of the vehicle path
+        #     predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
+        #     predicted_path_msg.header = predicted_pose_msg.header
+        #     predicted_path_msg.poses.append(predicted_pose_msg)
+        # self.predicted_path_pub.publish(predicted_path_msg)
+        # self.publish_reference(self.reference_pub, self.setpoint_position)
+        print("Mode: ", self.mode)
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+            print("In offboard")
             if self.mode == 'rate':
                 self.publish_rate_setpoint(u_pred)
             elif self.mode == 'direct_allocation' or self.mode == 'direct_allocation_trajectory':
                 self.publish_direct_actuator_setpoint(u_pred)
             elif self.mode == 'wrench':
+                print("Publishing wrench setpoint")
                 self.publish_wrench_setpoint(u_pred)
 
     def add_set_pos_callback(self, request, response):

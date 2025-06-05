@@ -48,7 +48,7 @@ import tempfile
 def generate_launch_description():
     mode_arg = DeclareLaunchArgument(
         'mode',
-        default_value='direct_allocation',
+        default_value='wrench',
         description='Mode of the controller (rate, wrench, direct_allocation)'
     )
 
