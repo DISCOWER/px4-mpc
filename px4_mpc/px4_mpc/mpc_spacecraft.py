@@ -56,6 +56,7 @@ from px4_msgs.msg import VehicleTorqueSetpoint
 from px4_msgs.msg import VehicleThrustSetpoint
 
 from mpc_msgs.srv import SetPose
+from px4_mpc.controllers.mpc_interface import MPCInterface
 
 
 def vector2PoseMsg(frame_id, position, attitude):
@@ -82,6 +83,9 @@ class SpacecraftMPC(Node):
         self.mode = self.declare_parameter('mode', 'wrench').value
         self.framework = self.declare_parameter('framework', 'acados').value
         self.sitl = True
+        self.mpc = MPCInterface(vehicle='spacecraft',
+                                mode=self.mode,
+                                framework=self.framework)
 
         # Get namespace
         self.namespace = self.declare_parameter('namespace', '').value
@@ -112,32 +116,6 @@ class SpacecraftMPC(Node):
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
-
-        # Create Spacecraft and controller objects
-        if self.framework == 'acados':
-            if self.mode == 'rate':
-                from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
-                from px4_mpc.controllers.spacecraft_rate_mpc import SpacecraftRateMPC
-                self.model = SpacecraftRateModel()
-                self.mpc = SpacecraftRateMPC(self.model)
-            elif self.mode == 'wrench':
-                from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
-                from px4_mpc.controllers.spacecraft_wrench_mpc import SpacecraftWrenchMPC
-                self.model = SpacecraftWrenchModel()
-                self.mpc = SpacecraftWrenchMPC(self.model)
-            elif self.mode == 'direct_allocation':
-                from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
-                from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
-                self.model = SpacecraftDirectAllocationModel()
-                self.mpc = SpacecraftDirectAllocationMPC(self.model)
-        elif self.framework == 'casadi':
-            if self.mode == 'rate':
-                from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
-                from px4_mpc.controllers.spacecraft_casadi_rate_mpc import SpacecraftCasadiRateMPC
-                self.model = SpacecraftRateModel()
-                self.mpc = SpacecraftCasadiRateMPC(self.model)
-            else:
-                raise NotImplementedError(f"Requested '{self.mode}'-MPC not implemented for '{self.framework}' framework.")
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
@@ -309,7 +287,7 @@ class SpacecraftMPC(Node):
         # u3 needs to be divided between 5 and 6
         # u4 needs to be divided between 7 and 8
         # positve component goes for the first, the negative for the second
-        thrust = u_pred[0, :] / self.model.max_thrust  # normalizes w.r.t. max thrust
+        thrust = u_pred[0, :] / self.mpc.model.max_thrust  # normalizes w.r.t. max thrust
         # print("Thrust rates: ", thrust[0:4])
 
         thrust_command = np.zeros(12, dtype=np.float32)

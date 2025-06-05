@@ -36,7 +36,7 @@ import casadi as cs
 from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
 import time
 
-class SpacecraftCasadiRateMPC():
+class SpacecraftRateMPC():
     def __init__(self, model:SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
         self.model = model
 
@@ -118,14 +118,14 @@ class SpacecraftCasadiRateMPC():
         for i in range(self.N):
             # ocp.subject_to(self.model.get_euler_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
             ocp.subject_to(self.model.get_rk4_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
-        
+
         # control input constraints
         u_ub = np.hstack((np.repeat([self.model.max_thrust],3),np.repeat([self.model.max_rate],3)))
         u_lb = -u_ub
         for i in range(self.N):
             ocp.subject_to(u_lb <= U[:,i])
             ocp.subject_to(U[:,i] <= u_ub)
- 
+
         # potential collision avoidance CBF constraint
         if self.add_cbf:
             # CBF variables: slack variable
@@ -144,7 +144,7 @@ class SpacecraftCasadiRateMPC():
             U_r = U[:,0]
             ocp.subject_to(self.ddh(X_r,X_o,U_r,U_o) + self.alpha*self.dh(X_r,X_o) + \
                            self.beta*self.h(X_r,X_o) >= -delta - OffSwitch)
-            ocp.subject_to(delta >= 0)            
+            ocp.subject_to(delta >= 0)
 
         ## COST
         # standard trajectory tracking cost
@@ -153,7 +153,7 @@ class SpacecraftCasadiRateMPC():
             cost_eq += self.calculate_state_error(X[:,i], xref[:,i], Q)
             cost_eq += U[:,i].T @ R @ U[:,i]
         cost_eq += self.calculate_state_error(X[:,-1], xref[:,-1], Q_e)
-        
+
         # potential CBF slack cost
         if self.add_cbf:
             cost_eq += 100*delta
@@ -166,7 +166,7 @@ class SpacecraftCasadiRateMPC():
         # opts = {'ipopt.print_level': 1, 'print_time': 0, 'ipopt.sb': 'yes',
         #         'verbose':False}
         # ocp.solver('ipopt',opts)
-        
+
         # qpoases
         nlp_options = {
             "qpsol": "qrqp",
@@ -189,17 +189,17 @@ class SpacecraftCasadiRateMPC():
         # quaternion cost
         q = x[6:10].reshape((4,1))
         qref = xref[6:10].reshape((4,1))
-        eq = 1 - (q.T @ qref)**2 
+        eq = 1 - (q.T @ qref)**2
         cost_eq = eq.T @ Q[6,6].reshape((1, 1)) @ eq
 
         return cost_eq + cost_es
-    
+
     def solve(self, x0, ref,
               weights={'Q': None, 'Q_e': None, 'R': None},
               initial_guess={'X': None, 'U': None},
               xobj=None, enable_cbf=True,
               verbose=False):
-        
+
         t0 = time.time()
 
         # set initial guess if we are getting any
