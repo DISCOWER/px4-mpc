@@ -36,13 +36,28 @@ import casadi as cs
 from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
 import time
 
-class SpacecraftRateMPC():
-    def __init__(self, model:SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
+
+class SpacecraftRateMPC:
+    """
+    Model Predictive Controller for spacecraft attitude control using rate control inputs.
+    This controller uses a discrete-time model of the spacecraft and solves an optimal control problem
+    to minimize the tracking error of the spacecraft's state to a reference trajectory.
+    """
+
+    def __init__(self, model: SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
+        """
+        Initialize the MPC controller.
+
+        :param model: SpacecraftRateModel instance containing the spacecraft dynamics.
+        :param Tf: Final time of the prediction horizon.
+        :param N: Number of control intervals in the prediction horizon.
+        :param add_cbf: Boolean indicating whether to add a collision avoidance CBF.
+        """
         self.model = model
 
         self.Tf = Tf
         self.N = N
-        self.dt = self.Tf/self.N
+        self.dt = self.Tf / self.N
 
         self.add_cbf = add_cbf
 
@@ -60,103 +75,76 @@ class SpacecraftRateMPC():
 
         self.Q = np.diag([5e0, 5e0, 5e0, 8e-1, 8e-1, 8e-1, 8e3])
         self.Q_e = 10 * self.Q
-        self.R = 2*np.diag([1e-2, 1e-2, 1e-2, 2e0, 2e0, 2e0])
+        self.R = 2 * np.diag([1e-2, 1e-2, 1e-2, 2e0, 2e0, 2e0])
 
         if self.add_cbf:
-            p_r, v_r = cs.SX.sym('p_r', 3), cs.SX.sym('v_r', 3)
-            q_r, u_r = cs.SX.sym('q_r', 4), cs.SX.sym('u_r', self.nu)
-            p_o, v_o = cs.SX.sym('p_o', 3), cs.SX.sym('v_o', 3)
-            q_o, u_o = cs.SX.sym('q_o', 4), cs.SX.sym('u_o', self.nu)
-            h = cs.sumsqr(p_r[0:2] - p_o[0:2]) - (0.2+0.2+0.1)**2 # 2 times the radius of the object + 0.1 m
-            x = cs.vertcat(p_r,p_o)
-            dx = cs.vertcat(v_r,v_o)
+            from px4_mpc.controllers.casadi.collision_avoidance.cbf import (
+                CollisionAvoidanceCBF,
+            )
 
-            X_r = cs.vertcat(p_r,v_r,q_r)
-            X_o = cs.vertcat(p_o,v_o,q_o)
-            U_r = u_r
-            U_o = u_o
-
-            # dh = dh/dx \dot{x}
-            # ddh = ddh/dx \dot{x} + ddh/ddx \ddot{x}
-            dh = cs.jacobian(h,x) @ dx
-            ddh = cs.jacobian(dh,x) @ dx + cs.jacobian(dh,dx) @ cs.vertcat(self.model.get_dx(X_r,u_r)[3:6],
-                                                                           self.model.get_dx(X_o,u_o)[3:6])
-
-            # now create functions out of these
-            # the 2nd order CBF constraint: ddh + alpha*dh + beta*h >= 0
-            self.h = cs.Function('h', [X_r,X_o], [h])
-            self.dh = cs.Function('dh', [X_r,X_o], [dh])
-            self.ddh = cs.Function('ddh', [X_r,X_o,U_r,U_o], [ddh])
-            self.beta = 1e0 # h
-            self.alpha  = 2e0 # dh
+            self.avoidance = CollisionAvoidanceCBF(model)
 
     def setup(self):
+        """
+        Set up the MPC problem using CasADi.
+
+        :return: ocp object
+        """
         # create ocp object to formulate the OCP
         ocp = cs.Opti()
         # set variables: state and control input
-        X = ocp.variable(self.nx,self.N+1)
-        U = ocp.variable(self.nu,self.N)
-        self.vars['X'] = X
-        self.vars['U'] = U
+        X = ocp.variable(self.nx, self.N + 1)
+        U = ocp.variable(self.nu, self.N)
+        self.vars["X"] = X
+        self.vars["U"] = U
         # set parameters: current state and reference state, cost matrices
         x0 = ocp.parameter(self.nx)
-        xref = ocp.parameter(self.nx,self.N+1)
-        Q = ocp.parameter(self.nx-3,self.nx-3)
-        Q_e = ocp.parameter(self.nx-3,self.nx-3)
-        R = ocp.parameter(self.nu,self.nu)
-        self.params['x0'] = x0
-        self.params['xref'] = xref
-        self.params['Q'] = Q
-        self.params['Q_e'] = Q_e
-        self.params['R'] = R
+        xref = ocp.parameter(self.nx, self.N + 1)
+        Q = ocp.parameter(self.nx - 3, self.nx - 3)
+        Q_e = ocp.parameter(self.nx - 3, self.nx - 3)
+        R = ocp.parameter(self.nu, self.nu)
+        self.params["x0"] = x0
+        self.params["xref"] = xref
+        self.params["Q"] = Q
+        self.params["Q_e"] = Q_e
+        self.params["R"] = R
 
-        ## CONSTRAINTS
+        # --- CONSTRAINTS
         # initial state constraint
-        ocp.subject_to(X[:,0] == x0)
+        ocp.subject_to(X[:, 0] == x0)
 
         # dynamics constraints
         for i in range(self.N):
-            # ocp.subject_to(self.model.get_euler_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
-            ocp.subject_to(self.model.get_rk4_integration(X[:,i],U[:,i],self.dt) == X[:,i+1])
+            ocp.subject_to(
+                self.model.get_rk4_integration(X[:, i], U[:, i], self.dt) == X[:, i + 1]
+            )
 
         # control input constraints
-        u_ub = np.hstack((np.repeat([self.model.max_thrust],3),np.repeat([self.model.max_rate],3)))
+        u_ub = np.hstack(
+            (np.repeat([self.model.max_thrust], 3), np.repeat([self.model.max_rate], 3))
+        )
         u_lb = -u_ub
         for i in range(self.N):
-            ocp.subject_to(u_lb <= U[:,i])
-            ocp.subject_to(U[:,i] <= u_ub)
+            ocp.subject_to(u_lb <= U[:, i])
+            ocp.subject_to(U[:, i] <= u_ub)
 
         # potential collision avoidance CBF constraint
         if self.add_cbf:
-            # CBF variables: slack variable
-            delta = ocp.variable(1)
-            self.vars['delta'] = delta
-            # CBF parameters: object state and control, offswitch (big slack)
-            X_o = ocp.parameter(self.nx)
-            U_o = ocp.parameter(self.nu)
-            OffSwitch = ocp.parameter(1)
-            self.params['X_o'] = X_o
-            self.params['U_o'] = U_o
-            self.params['OffSwitch'] = OffSwitch
+            ocp, params, delta = self.avoidance.setup(ocp, X, U)
+            self.vars["delta"] = delta
+            self.params.update(params)
 
-            # the CBF gets assigned to the first time instance (linear constraint)
-            X_r = X[:,0]
-            U_r = U[:,0]
-            ocp.subject_to(self.ddh(X_r,X_o,U_r,U_o) + self.alpha*self.dh(X_r,X_o) + \
-                           self.beta*self.h(X_r,X_o) >= -delta - OffSwitch)
-            ocp.subject_to(delta >= 0)
-
-        ## COST
+        # --- COST
         # standard trajectory tracking cost
         cost_eq = 0
         for i in range(self.N):
-            cost_eq += self.calculate_state_error(X[:,i], xref[:,i], Q)
-            cost_eq += U[:,i].T @ R @ U[:,i]
-        cost_eq += self.calculate_state_error(X[:,-1], xref[:,-1], Q_e)
+            cost_eq += self.calculate_state_error(X[:, i], xref[:, i], Q)
+            cost_eq += U[:, i].T @ R @ U[:, i]
+        cost_eq += self.calculate_state_error(X[:, -1], xref[:, -1], Q_e)
 
         # potential CBF slack cost
         if self.add_cbf:
-            cost_eq += 100*delta
+            cost_eq += 100 * delta
 
         # and minimize the sum of the costs
         ocp.minimize(cost_eq)
@@ -174,9 +162,13 @@ class SpacecraftRateMPC():
             "max_iter": 100,
             "tol_du": 1e-2,
             "tol_pr": 1e-2,
-            "qpsol_options": {"sparse":True, "hessian_type": "posdef", "numRefinementSteps":1}
+            "qpsol_options": {
+                "sparse": True,
+                "hessian_type": "posdef",
+                "numRefinementSteps": 1,
+            },
         }
-        ocp.solver('sqpmethod',nlp_options)
+        ocp.solver("sqpmethod", nlp_options)
 
         return ocp
 
@@ -184,63 +176,64 @@ class SpacecraftRateMPC():
         # state: p, v, q
         es = x - xref
         es = es[0:6]
-        cost_es = es.T @ Q[0:6,0:6] @ es
+        cost_es = es.T @ Q[0:6, 0:6] @ es
 
         # quaternion cost
-        q = x[6:10].reshape((4,1))
-        qref = xref[6:10].reshape((4,1))
-        eq = 1 - (q.T @ qref)**2
-        cost_eq = eq.T @ Q[6,6].reshape((1, 1)) @ eq
+        q = x[6:10].reshape((4, 1))
+        qref = xref[6:10].reshape((4, 1))
+        eq = 1 - (q.T @ qref) ** 2
+        cost_eq = eq.T @ Q[6, 6].reshape((1, 1)) @ eq
 
         return cost_eq + cost_es
 
     def solve(self, x0, ref,
-              weights={'Q': None, 'Q_e': None, 'R': None},
-              initial_guess={'X': None, 'U': None},
-              xobj=None, enable_cbf=True,
-              verbose=False):
+              weights={"Q": None, "Q_e": None, "R": None},
+              initial_guess={"X": None, "U": None},
+              xobj=None, enable_cbf=True, verbose=False):
 
         t0 = time.time()
 
         # set initial guess if we are getting any
-        if initial_guess['X'] is not None:
-            self.ocp.set_initial(self.vars['X'], initial_guess['X'])
-        if initial_guess['U'] is not None:
-            self.ocp.set_initial(self.vars['U'], initial_guess['U'])
+        if initial_guess["X"] is not None:
+            self.ocp.set_initial(self.vars["X"], initial_guess["X"])
+        if initial_guess["U"] is not None:
+            self.ocp.set_initial(self.vars["U"], initial_guess["U"])
 
         # set x0 parameter
-        self.ocp.set_value(self.params['x0'], x0)
+        self.ocp.set_value(self.params["x0"], x0)
 
         # set setpoints parameter
-        self.ocp.set_value(self.params['xref'], ref[:10,:])
+        self.ocp.set_value(self.params["xref"], ref[:10, :])
 
         # set cost matrices if we are getting any
-        Q = self.Q if weights['Q'] is None else weights['Q']
-        Q_e = self.Q_e if weights['Q_e'] is None else weights['Q_e']
-        R = self.R if weights['R'] is None else weights['R']
-        self.ocp.set_value(self.params['Q'], Q)
-        self.ocp.set_value(self.params['Q_e'], Q_e)
-        self.ocp.set_value(self.params['R'], R)
+        Q = self.Q if weights["Q"] is None else weights["Q"]
+        Q_e = self.Q_e if weights["Q_e"] is None else weights["Q_e"]
+        R = self.R if weights["R"] is None else weights["R"]
+        self.ocp.set_value(self.params["Q"], Q)
+        self.ocp.set_value(self.params["Q_e"], Q_e)
+        self.ocp.set_value(self.params["R"], R)
 
         # set other object parameters if we should add the cbf (otherwise these
         # parameters do not exist)
         if xobj is not None and self.add_cbf:
-            self.ocp.set_value(self.params['X_o'], xobj)
-            self.ocp.set_value(self.params['U_o'], np.zeros((self.nu,1)))
+            self.ocp.set_value(self.params["X_o"], xobj)
+            self.ocp.set_value(self.params["U_o"], np.zeros((self.nu, 1)))
             # sometimes we might wish to disable the cbf under certain conditions
             # to enable this, we add a significant slack to the CBF constraint
             if enable_cbf:
-                self.ocp.set_value(self.params['OffSwitch'], 0)
+                self.ocp.set_value(self.params["OffSwitch"], 0)
             else:
-                self.ocp.set_value(self.params['OffSwitch'], 10000) # make it a trivial constraint
+                self.ocp.set_value(
+                    self.params["OffSwitch"], 10000
+                )  # make it a trivial constraint
 
         try:
             sol = self.ocp.solve()
-            X_pred = sol.value(self.vars['X'])
-            U_pred = sol.value(self.vars['U'])
+            X_pred = sol.value(self.vars["X"])
+            U_pred = sol.value(self.vars["U"])
         except Exception as e:
             print(f"Optimization failed: {e}") if verbose else None
-            X_pred = np.zeros((self.nx, self.N+1))
+            X_pred = np.zeros((self.nx, self.N + 1))
             U_pred = np.zeros((self.nu, self.N))
 
         print(f"time taken: {time.time()-t0}") if verbose else None
