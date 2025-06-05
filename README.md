@@ -21,7 +21,8 @@ If you find this package useful in an academic context, please consider citing t
 ```
 
 ## Setup
-The MPC formulation uses acados. In order to install acados, follow the following [instructions](https://docs.acados.org/installation/)
+The MPC formulation uses acados. In order to install acados, follow the following [instructions](https://docs.acados.org/installation/). After building `acados` remember to install the python interface as described [here](https://docs.acados.org/python_interface/index.html).
+
 To build the code, clone the following repositories into a ros2 workspace
 Dependencies
 - [px4_msgs](https://github.com/PX4/px4_msgs/pull/15)

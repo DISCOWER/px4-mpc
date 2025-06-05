@@ -35,6 +35,7 @@ from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
 import numpy as np
 import scipy.linalg
 import casadi as cs
+import os
 
 class MultirotorRateMPC():
     def __init__(self, model):
@@ -49,6 +50,14 @@ class MultirotorRateMPC():
     def setup(self, x0, N_horizon, Tf):
         # create ocp object to formulate the OCP
         ocp = AcadosOcp()
+
+        # Set directory for code generation and json file
+        this_file_dir = os.path.dirname(os.path.abspath(__file__))
+        package_root = os.path.abspath(os.path.join(this_file_dir, '..'))
+        codegen_dir = os.path.join(package_root, 'mpc_codegen')
+        json_path = os.path.join(codegen_dir, 'acados_ocp.json')
+        os.makedirs(codegen_dir, exist_ok=True)
+        ocp.code_export_directory = codegen_dir
 
         # set model
         model = self.model.get_acados_model()
@@ -117,11 +126,12 @@ class MultirotorRateMPC():
         # set prediction horizon
         ocp.solver_options.tf = Tf
 
-        ocp_solver = AcadosOcpSolver(ocp, json_file = 'acados_ocp.json')
+        ocp_solver = AcadosOcpSolver(ocp, json_file=json_path)
         # create an integrator with the same settings as used in the OCP solver.
-        acados_integrator = AcadosSimSolver(ocp, json_file = 'acados_ocp.json')
+        acados_integrator = AcadosSimSolver(ocp, json_file=json_path)
 
         return ocp_solver, acados_integrator
+    
     def solve(self, x0, verbose=False):
 
         # preparation phase
