@@ -69,6 +69,7 @@ class SpacecraftOffsetFreeWrenchMPC():
         self.R = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1]) * 10
 
         self.umax = np.array([1.0] * 6)
+        # self.umax = np.array([1.5, 1.5, 1.5, 0.5, 0.5, 0.5])
         self.umax[3:] *= 0.12
         self.umin = -self.umax
 
@@ -209,7 +210,6 @@ class SpacecraftOffsetFreeWrenchMPC():
         # Solve MPC:
         x_hat = self.ekf.get_state()
 
-        uPred, xPred = self.mpc.compute_predicted_optimal_controls(x_hat[0:self.n], yref, x_hat[self.n:])
         u_current = uPred[:, 0]
 
         # Debugging with verbose:
