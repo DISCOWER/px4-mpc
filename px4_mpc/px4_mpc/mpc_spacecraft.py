@@ -495,10 +495,5 @@ def main(args=None):
         spacecraft_mpc.destroy_node()
         rclpy.shutdown()
 
-    # rclpy.spin(spacecraft_mpc)
-    # spacecraft_mpc.destroy_node()
-    # rclpy.shutdown()
-
-
 if __name__ == '__main__':
     main()

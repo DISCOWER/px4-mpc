@@ -37,11 +37,15 @@ class MPCInterface:
 
         # Instantiate the model and controller classes
         self.model = model_class()
-        # try:
-        self.mpc = controller_class(self.model, safety_filters=self.safety_filters)
-        # except Exception as e:
-        #     raise ValueError(f"Can currently not instantiate safety filters for {vehicle} in {framework} with mode {mode}.") from e
-        # self.mpc = controller_class(self.model)
+        try:
+            self.mpc = controller_class(self.model, safety_filters=self.safety_filters)
+        except TypeError as e:
+            if 'safety_filters' in str(e):
+                raise TypeError(f"Can currently not instantiate safety filters for {vehicle} in {framework} with mode {mode}.") from e
+            else:
+                raise 
+        
+    
 
     def __getattr__(self, name):
         # Pass upwards any mpc-related attributes or methods
