@@ -48,8 +48,14 @@ import tempfile
 def generate_launch_description():
     mode_arg = DeclareLaunchArgument(
         'mode',
-        default_value='direct_allocation',
+        default_value='wrench',
         description='Mode of the controller (rate, wrench, direct_allocation)'
+    )
+
+    framework_arg = DeclareLaunchArgument(
+        'framework',
+        default_value='acados',
+        description='MPC framework used for the controller (acados, casadi)'
     )
 
     namespace_arg = DeclareLaunchArgument(
@@ -65,11 +71,13 @@ def generate_launch_description():
     )
 
     mode = LaunchConfiguration('mode')
+    framework = LaunchConfiguration('framework')
     namespace = LaunchConfiguration('namespace')
     setpoint_from_rviz = LaunchConfiguration('setpoint_from_rviz')
 
     return LaunchDescription([
         mode_arg,
+        framework_arg,
         namespace_arg,
         setpoint_from_rviz_arg,
         Node(
@@ -81,6 +89,7 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[
                 {'mode': mode},
+                {'framework': framework},
                 {'namespace': namespace},
                 {'setpoint_from_rviz': setpoint_from_rviz}
             ]
@@ -125,7 +134,7 @@ def patch_rviz_config(original_config_path, namespace):
 
     # Replace placeholder with actual namespace
     content = content.replace('__NS__', f'/{namespace}' if namespace else '')
-    
+
     # Write to temporary file
     tmp_rviz_config = tempfile.NamedTemporaryFile(delete=False, suffix='.rviz')
     tmp_rviz_config.write(content.encode('utf-8'))

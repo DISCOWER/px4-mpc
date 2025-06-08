@@ -36,6 +36,8 @@ __author__ = "Pedro Roque, Jaeyoung Lim"
 __contact__ = "padr@kth.se, jalim@ethz.ch"
 
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
+
 import numpy as np
 from rclpy.node import Node
 from rclpy.clock import Clock
@@ -56,6 +58,9 @@ from px4_msgs.msg import VehicleTorqueSetpoint
 from px4_msgs.msg import VehicleThrustSetpoint
 
 from mpc_msgs.srv import SetPose
+from px4_mpc.controllers.mpc_interface import MPCInterface
+
+from px4_mpc.controllers.casadi.filters.safety_filters import HalfSpaceSafetyFilter, ObjectAvoidanceFilter
 
 
 def vector2PoseMsg(frame_id, position, attitude):
@@ -78,9 +83,26 @@ class SpacecraftMPC(Node):
     def __init__(self):
         super().__init__('spacecraft_mpc')
 
+        #! Safety filters
+        self.safety_filters = []
+        # Add basic safety filter: x >= 0
+        A = np.array([[-1.0, 0, 0]])
+        print(f"A: {A}")
+        b = np.array([0.0])
+        filter = HalfSpaceSafetyFilter()
+        filter.set_h_constants(A, b)
+        filter.set_controller_constants(alpha=2, beta=1)
+        self.safety_filters.append(filter)
+        #! End of safety filters
+
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
+        self.framework = self.declare_parameter('framework', 'acados').value
         self.sitl = True
+        self.mpc = MPCInterface(vehicle='spacecraft',
+                                mode=self.mode,
+                                framework=self.framework,
+                                safety_filters=self.safety_filters)
 
         # Get namespace
         self.namespace = self.declare_parameter('namespace', '').value
@@ -112,23 +134,6 @@ class SpacecraftMPC(Node):
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
 
-        # Create Spacecraft and controller objects
-        if self.mode == 'rate':
-            from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
-            from px4_mpc.controllers.spacecraft_rate_mpc import SpacecraftRateMPC
-            self.model = SpacecraftRateModel()
-            self.mpc = SpacecraftRateMPC(self.model)
-        elif self.mode == 'wrench':
-            from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
-            from px4_mpc.controllers.spacecraft_wrench_mpc import SpacecraftWrenchMPC
-            self.model = SpacecraftWrenchModel()
-            self.mpc = SpacecraftWrenchMPC(self.model)
-        elif self.mode == 'direct_allocation':
-            from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
-            from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
-            self.model = SpacecraftDirectAllocationModel()
-            self.mpc = SpacecraftDirectAllocationMPC(self.model)
-
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
         self.vehicle_angular_velocity = np.array([0.0, 0.0, 0.0])
@@ -140,7 +145,7 @@ class SpacecraftMPC(Node):
     def set_publishers_subscribers(self, qos_profile_pub, qos_profile_sub):
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            f'{self.namespace_prefix}/fmu/out/vehicle_status',
+            f'{self.namespace_prefix}/fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
 
@@ -282,8 +287,10 @@ class SpacecraftMPC(Node):
         torque_outputs_msg = VehicleTorqueSetpoint()
         torque_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
-        torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        # thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
+        # torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -u_pred[0, 2]]
+        torque_outputs_msg.xyz = [u_pred[0, 3], -u_pred[0, 4], -u_pred[0, 5]]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
         self.publisher_torque_setpoint.publish(torque_outputs_msg)
@@ -299,7 +306,7 @@ class SpacecraftMPC(Node):
         # u3 needs to be divided between 5 and 6
         # u4 needs to be divided between 7 and 8
         # positve component goes for the first, the negative for the second
-        thrust = u_pred[0, :] / self.model.max_thrust  # normalizes w.r.t. max thrust
+        thrust = u_pred[0, :] / self.mpc.model.max_thrust  # normalizes w.r.t. max thrust
         # print("Thrust rates: ", thrust[0:4])
 
         thrust_command = np.zeros(12, dtype=np.float32)
@@ -340,7 +347,6 @@ class SpacecraftMPC(Node):
         return
 
     def cmdloop_callback(self):
-
         # Publish odometry for SITL
         if self.sitl:
             self.publish_sitl_odometry()
@@ -423,26 +429,29 @@ class SpacecraftMPC(Node):
             raise ValueError(f'Invalid mode: {self.mode}')
 
         # Solve MPC
-        u_pred, x_pred = self.mpc.solve(x0, ref=ref)
+        u_pred, x_pred = self.mpc.solve(x0, ref=ref, verbose=True)
 
         # Colect data
-        idx = 0
-        predicted_path_msg = Path()
-        for predicted_state in x_pred:
-            idx = idx + 1
-            # Publish time history of the vehicle path
-            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
-            predicted_path_msg.header = predicted_pose_msg.header
-            predicted_path_msg.poses.append(predicted_pose_msg)
-        self.predicted_path_pub.publish(predicted_path_msg)
-        self.publish_reference(self.reference_pub, self.setpoint_position)
+        # idx = 0
+        # predicted_path_msg = Path()
+        # for predicted_state in x_pred:
+        #     idx = idx + 1
+        #     # Publish time history of the vehicle path
+        #     predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
+        #     predicted_path_msg.header = predicted_pose_msg.header
+        #     predicted_path_msg.poses.append(predicted_pose_msg)
+        # self.predicted_path_pub.publish(predicted_path_msg)
+        # self.publish_reference(self.reference_pub, self.setpoint_position)
 
+        print("Mode: ", self.mode)
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+            print("In offboard")
             if self.mode == 'rate':
                 self.publish_rate_setpoint(u_pred)
             elif self.mode == 'direct_allocation' or self.mode == 'direct_allocation_trajectory':
                 self.publish_direct_actuator_setpoint(u_pred)
             elif self.mode == 'wrench':
+                print("Publishing wrench setpoint")
                 self.publish_wrench_setpoint(u_pred)
 
     def add_set_pos_callback(self, request, response):
@@ -469,12 +478,22 @@ def main(args=None):
     rclpy.init(args=args)
 
     spacecraft_mpc = SpacecraftMPC()
+    executor = MultiThreadedExecutor()
 
-    rclpy.spin(spacecraft_mpc)
+    executor.add_node(spacecraft_mpc)
+    # if spacecraft_mpc.mpc.filters exists and is a list:
+    if hasattr(spacecraft_mpc.mpc, 'safety_filters') and isinstance(spacecraft_mpc.mpc.safety_filters, list):
+        for safety_filter in spacecraft_mpc.mpc.safety_filters:
+            executor.add_node(safety_filter)
 
-    spacecraft_mpc.destroy_node()
-    rclpy.shutdown()
-
+    try:
+        executor.spin()
+    finally:
+        if hasattr(spacecraft_mpc.mpc, 'safety_filters') and isinstance(spacecraft_mpc.mpc.safety_filters, list):
+            for safety_filter in spacecraft_mpc.mpc.safety_filters:
+                safety_filter.destroy_node()
+        spacecraft_mpc.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

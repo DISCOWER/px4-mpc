@@ -36,6 +36,7 @@ import numpy as np
 import casadi as cs
 import os
 
+
 class SpacecraftRateMPC():
     def __init__(self, model):
         self.model = model
