@@ -1,11 +1,14 @@
 import casadi as ca
 import importlib
+from typing import List
+from px4_mpc.controllers.casadi.filters.safety_filters import SafetyFilter
 
 class MPCInterface:
-    def __init__(self, vehicle, mode, framework):
+    def __init__(self, vehicle, mode:str, framework:str, safety_filters: List[SafetyFilter]=[]):
         self.vehicle = vehicle
         self.mode = mode
         self.framework = framework
+        self.safety_filters = safety_filters
 
         # TODO: dictionary of supported vehicles, frameworks and modes
         if self.vehicle not in ["spacecraft", "quadrotor"]:
@@ -34,7 +37,11 @@ class MPCInterface:
 
         # Instantiate the model and controller classes
         self.model = model_class()
-        self.mpc = controller_class(self.model)
+        # try:
+        self.mpc = controller_class(self.model, safety_filters=self.safety_filters)
+        # except Exception as e:
+        #     raise ValueError(f"Can currently not instantiate safety filters for {vehicle} in {framework} with mode {mode}.") from e
+        # self.mpc = controller_class(self.model)
 
     def __getattr__(self, name):
         # Pass upwards any mpc-related attributes or methods

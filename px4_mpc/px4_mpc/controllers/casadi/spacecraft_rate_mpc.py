@@ -34,7 +34,9 @@
 import numpy as np
 import casadi as cs
 from px4_mpc.models.spacecraft_rate_model import SpacecraftRateModel
+from px4_mpc.controllers.casadi.filters.safety_filters import SafetyFilter
 import time
+from typing import List
 
 
 class SpacecraftRateMPC:
@@ -44,7 +46,8 @@ class SpacecraftRateMPC:
     to minimize the tracking error of the spacecraft's state to a reference trajectory.
     """
 
-    def __init__(self, model: SpacecraftRateModel, Tf=1.0, N=10, add_cbf=False):
+    def __init__(self, model: SpacecraftRateModel, Tf=1.0, N=10,
+                 safety_filters: List[SafetyFilter] = []):
         """
         Initialize the MPC controller.
 
@@ -59,8 +62,6 @@ class SpacecraftRateMPC:
         self.N = N
         self.dt = self.Tf / self.N
 
-        self.add_cbf = add_cbf
-
         self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
         self.nx = model.nx
@@ -71,18 +72,18 @@ class SpacecraftRateMPC:
         self.params = {}
         self.vars = {}
 
-        self.ocp = self.setup()
-
         self.Q = np.diag([5e0, 5e0, 5e0, 8e-1, 8e-1, 8e-1, 8e3])
         self.Q_e = 10 * self.Q
         self.R = 2 * np.diag([1e-2, 1e-2, 1e-2, 2e0, 2e0, 2e0])
 
-        if self.add_cbf:
-            from px4_mpc.controllers.casadi.collision_avoidance.cbf import (
-                CollisionAvoidanceCBF,
-            )
+        self.initial_guess = {
+            "X": None,  # initial guess for the state trajectory
+            "U": None   # initial guess for the control inputs
+        }
 
-            self.avoidance = CollisionAvoidanceCBF(model)
+        self.safety_filters = safety_filters
+
+        self.ocp = self.setup()
 
     def setup(self):
         """
@@ -129,10 +130,9 @@ class SpacecraftRateMPC:
             ocp.subject_to(U[:, i] <= u_ub)
 
         # potential collision avoidance CBF constraint
-        if self.add_cbf:
-            ocp, params, delta = self.avoidance.setup(ocp, X, U)
-            self.vars["delta"] = delta
-            self.params.update(params)
+        for id, safety_filter in enumerate(self.safety_filters):
+            ocp, delta = safety_filter.setup(self.model, ocp, X, U)
+            self.vars[f"delta_{id}"] = delta
 
         # --- COST
         # standard trajectory tracking cost
@@ -143,8 +143,8 @@ class SpacecraftRateMPC:
         cost_eq += self.calculate_state_error(X[:, -1], xref[:, -1], Q_e)
 
         # potential CBF slack cost
-        if self.add_cbf:
-            cost_eq += 100 * delta
+        for id, safety_filter in enumerate(self.safety_filters):
+            cost_eq += 100 * self.vars[f"delta_{id}"]
 
         # and minimize the sum of the costs
         ocp.minimize(cost_eq)
@@ -153,22 +153,36 @@ class SpacecraftRateMPC:
         # IPOPT
         # opts = {'ipopt.print_level': 1, 'print_time': 0, 'ipopt.sb': 'yes',
         #         'verbose':False}
-        # ocp.solver('ipopt',opts)
-
-        # qrqp
-        nlp_options = {
-            "qpsol": "qrqp",
-            "hessian_approximation": "gauss-newton",
-            "max_iter": 100,
-            "tol_du": 1e-2,
-            "tol_pr": 1e-2,
-            "qpsol_options": {
-                "sparse": True,
-                "hessian_type": "posdef",
-                "numRefinementSteps": 1,
-            },
+        opts = {
+            'ipopt.print_level': 0,
+            'ipopt.max_iter': 100,
+            'ipopt.tol': 1e-1,
+            'ipopt.warm_start_bound_push': 1e-4,
+            'ipopt.warm_start_bound_frac': 1e-4,
+            'ipopt.warm_start_slack_bound_frac': 1e-4,
+            'ipopt.warm_start_slack_bound_push': 1e-4,
+            'ipopt.warm_start_mult_bound_push': 1e-4,
+            'print_time': False,
+            'verbose': False,
+            'ipopt.sb': 'yes'
         }
-        ocp.solver("sqpmethod", nlp_options)
+        ocp.solver('ipopt',opts)
+
+        # # qrqp
+        # nlp_options = {
+        #     "qpsol": "qrqp",
+        #     "hessian_approximation": "gauss-newton",
+        #     "max_iter": 100,
+        #     "tol_du": 1e-2,
+        #     "tol_pr": 1e-2,
+        #     "verbose": False,
+        #     # "qpsol_options": {
+        #     #     "sparse": True,
+        #     #     # "hessian_type": "posdef",
+        #     #     # "numRefinementSteps": 1,
+        #     # },
+        # }
+        # ocp.solver("sqpmethod", nlp_options)
 
         return ocp
 
@@ -188,16 +202,15 @@ class SpacecraftRateMPC:
 
     def solve(self, x0, ref,
               weights={"Q": None, "Q_e": None, "R": None},
-              initial_guess={"X": None, "U": None},
-              xobj=None, enable_cbf=True, verbose=False):
+              verbose=False):
 
         t0 = time.time()
 
         # set initial guess if we are getting any
-        if initial_guess["X"] is not None:
-            self.ocp.set_initial(self.vars["X"], initial_guess["X"])
-        if initial_guess["U"] is not None:
-            self.ocp.set_initial(self.vars["U"], initial_guess["U"])
+        if self.initial_guess["X"] is not None:
+            self.ocp.set_initial(self.vars["X"], self.initial_guess["X"])
+        if self.initial_guess["U"] is not None:
+            self.ocp.set_initial(self.vars["U"], self.initial_guess["U"])
 
         # set x0 parameter
         self.ocp.set_value(self.params["x0"], x0)
@@ -215,18 +228,9 @@ class SpacecraftRateMPC:
 
         # set other object parameters if we should add the cbf (otherwise these
         # parameters do not exist)
-        if xobj is not None and self.add_cbf:
-            self.ocp.set_value(self.params["X_o"], xobj)
-            self.ocp.set_value(self.params["U_o"], np.zeros((self.nu, 1)))
-            # sometimes we might wish to disable the cbf under certain conditions
-            # to enable this, we add a significant slack to the CBF constraint
-            if enable_cbf:
-                self.ocp.set_value(self.params["OffSwitch"], 0)
-            else:
-                self.ocp.set_value(
-                    self.params["OffSwitch"], 10000
-                )  # make it a trivial constraint
-
+        for safety_filter in self.safety_filters:
+            safety_filter.update_params(self.ocp)
+        
         try:
             sol = self.ocp.solve()
             X_pred = sol.value(self.vars["X"])
@@ -237,7 +241,10 @@ class SpacecraftRateMPC:
             U_pred = np.zeros((self.nu, self.N))
 
         print(f"time taken: {time.time()-t0}") if verbose else None
-
+ 
+        # update the initial guess for the next iteration
+        self.initial_guess["X"] = X_pred
+        self.initial_guess["U"] = U_pred
         # transpose the obtained state and control to be consistent with the acados setup
         X_pred, U_pred = X_pred.T, U_pred.T
         return U_pred, X_pred

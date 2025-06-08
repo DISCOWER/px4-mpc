@@ -36,6 +36,8 @@ __author__ = "Pedro Roque, Jaeyoung Lim"
 __contact__ = "padr@kth.se, jalim@ethz.ch"
 
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
+
 import numpy as np
 from rclpy.node import Node
 from rclpy.clock import Clock
@@ -58,6 +60,8 @@ from px4_msgs.msg import VehicleThrustSetpoint
 from mpc_msgs.srv import SetPose
 from px4_mpc.controllers.mpc_interface import MPCInterface
 
+from px4_mpc.controllers.casadi.filters.safety_filters import HalfSpaceSafetyFilter, ObjectAvoidanceFilter
+
 
 def vector2PoseMsg(frame_id, position, attitude):
     pose_msg = PoseStamped()
@@ -79,13 +83,26 @@ class SpacecraftMPC(Node):
     def __init__(self):
         super().__init__('spacecraft_mpc')
 
+        #! Safety filters
+        self.safety_filters = []
+        # Add basic safety filter: x >= 0
+        A = np.array([[-1.0, 0, 0]])
+        print(f"A: {A}")
+        b = np.array([0.0])
+        filter = HalfSpaceSafetyFilter()
+        filter.set_h_constants(A, b)
+        filter.set_controller_constants(alpha=2, beta=1)
+        self.safety_filters.append(filter)
+        #! End of safety filters
+
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
         self.framework = self.declare_parameter('framework', 'acados').value
         self.sitl = True
         self.mpc = MPCInterface(vehicle='spacecraft',
                                 mode=self.mode,
-                                framework=self.framework)
+                                framework=self.framework,
+                                safety_filters=self.safety_filters)
 
         # Get namespace
         self.namespace = self.declare_parameter('namespace', '').value
@@ -412,7 +429,7 @@ class SpacecraftMPC(Node):
             raise ValueError(f'Invalid mode: {self.mode}')
 
         # Solve MPC
-        u_pred, x_pred = self.mpc.solve(x0, ref=ref)
+        u_pred, x_pred = self.mpc.solve(x0, ref=ref, verbose=True)
 
         # Colect data
         # idx = 0
@@ -425,6 +442,7 @@ class SpacecraftMPC(Node):
         #     predicted_path_msg.poses.append(predicted_pose_msg)
         # self.predicted_path_pub.publish(predicted_path_msg)
         # self.publish_reference(self.reference_pub, self.setpoint_position)
+
         print("Mode: ", self.mode)
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
             print("In offboard")
@@ -460,11 +478,26 @@ def main(args=None):
     rclpy.init(args=args)
 
     spacecraft_mpc = SpacecraftMPC()
+    executor = MultiThreadedExecutor()
 
-    rclpy.spin(spacecraft_mpc)
+    executor.add_node(spacecraft_mpc)
+    # if spacecraft_mpc.mpc.filters exists and is a list:
+    if hasattr(spacecraft_mpc.mpc, 'safety_filters') and isinstance(spacecraft_mpc.mpc.safety_filters, list):
+        for safety_filter in spacecraft_mpc.mpc.safety_filters:
+            executor.add_node(safety_filter)
 
-    spacecraft_mpc.destroy_node()
-    rclpy.shutdown()
+    try:
+        executor.spin()
+    finally:
+        if hasattr(spacecraft_mpc.mpc, 'safety_filters') and isinstance(spacecraft_mpc.mpc.safety_filters, list):
+            for safety_filter in spacecraft_mpc.mpc.safety_filters:
+                safety_filter.destroy_node()
+        spacecraft_mpc.destroy_node()
+        rclpy.shutdown()
+
+    # rclpy.spin(spacecraft_mpc)
+    # spacecraft_mpc.destroy_node()
+    # rclpy.shutdown()
 
 
 if __name__ == '__main__':
