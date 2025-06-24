@@ -57,22 +57,6 @@ from px4_msgs.msg import VehicleThrustSetpoint
 
 from mpc_msgs.srv import SetPose
 
-
-def vector2PoseMsg(frame_id, position, attitude):
-    pose_msg = PoseStamped()
-    # msg.header.stamp = Clock().now().nanoseconds / 1000
-    pose_msg.header.frame_id = frame_id
-    pose_msg.header.frame_id = frame_id
-    pose_msg.pose.orientation.w = attitude[0]
-    pose_msg.pose.orientation.x = attitude[1]
-    pose_msg.pose.orientation.y = attitude[2]
-    pose_msg.pose.orientation.z = attitude[3]
-    pose_msg.pose.position.x = float(position[0])
-    pose_msg.pose.position.y = float(position[1])
-    pose_msg.pose.position.z = float(position[2])
-    return pose_msg
-
-
 class SpacecraftMPC(Node):
 
     def __init__(self):
@@ -211,23 +195,23 @@ class SpacecraftMPC(Node):
         return
 
     def vehicle_attitude_callback(self, msg):
-        # TODO: handle NED->ENU transformation
-        self.vehicle_attitude[0] = msg.q[0]
-        self.vehicle_attitude[1] = msg.q[1]
-        self.vehicle_attitude[2] = -msg.q[2]
-        self.vehicle_attitude[3] = -msg.q[3]
+        # NED-> ENU transformation
+        # Receives quaternion in NED frame as (qw, qx, qy, qz)
+        q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
+        q_enu /= np.linalg.norm(q_enu)
+        self.vehicle_attitude = q_enu.astype(float)
 
     def vehicle_local_position_callback(self, msg):
-        # TODO: handle NED->ENU transformation
-        self.vehicle_local_position[0] = msg.x
-        self.vehicle_local_position[1] = -msg.y
+        # NED-> ENU transformation
+        self.vehicle_local_position[0] = msg.y
+        self.vehicle_local_position[1] = msg.x
         self.vehicle_local_position[2] = -msg.z
-        self.vehicle_local_velocity[0] = msg.vx
-        self.vehicle_local_velocity[1] = -msg.vy
+        self.vehicle_local_velocity[0] = msg.vy
+        self.vehicle_local_velocity[1] = msg.vx
         self.vehicle_local_velocity[2] = -msg.vz
 
     def vehicle_angular_velocity_callback(self, msg):
-        # TODO: handle NED->ENU transformation
+        # NED-> ENU transformation
         self.vehicle_angular_velocity[0] = msg.xyz[0]
         self.vehicle_angular_velocity[1] = -msg.xyz[1]
         self.vehicle_angular_velocity[2] = -msg.xyz[2]
@@ -292,30 +276,19 @@ class SpacecraftMPC(Node):
         actuator_outputs_msg = ActuatorMotors()
         actuator_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        # NOTE:
-        # Output is float[16]
-        # u1 needs to be divided between 1 and 2
-        # u2 needs to be divided between 3 and 4
-        # u3 needs to be divided between 5 and 6
-        # u4 needs to be divided between 7 and 8
-        # positve component goes for the first, the negative for the second
-        thrust = u_pred[0, :] / self.model.max_thrust  # normalizes w.r.t. max thrust
-        # print("Thrust rates: ", thrust[0:4])
+        # Normalize thrust values w.r.t. max thrust
+        thrust = u_pred[0, :] / self.model.max_thrust
 
-        thrust_command = np.zeros(12, dtype=np.float32)
-        thrust_command[0] = 0.0 if thrust[0] <= 0.0 else thrust[0]
-        thrust_command[1] = 0.0 if thrust[0] >= 0.0 else -thrust[0]
+        # Generate actuator outputs dynamically
+        thrust_command = []
+        for t in thrust:
+            thrust_command.extend([max(t, 0.0), max(-t, 0.0)])  # Positive and negative components
 
-        thrust_command[2] = 0.0 if thrust[1] <= 0.0 else thrust[1]
-        thrust_command[3] = 0.0 if thrust[1] >= 0.0 else -thrust[1]
+        # Ensure the output array has exactly 12 elements
+        thrust_command = np.array(thrust_command[:12], dtype=np.float32)
+        thrust_command = np.clip(thrust_command, 0.0, 1.0)  # Clip values between 0 and 1
 
-        thrust_command[4] = 0.0 if thrust[2] <= 0.0 else thrust[2]
-        thrust_command[5] = 0.0 if thrust[2] >= 0.0 else -thrust[2]
-
-        thrust_command[6] = 0.0 if thrust[3] <= 0.0 else thrust[3]
-        thrust_command[7] = 0.0 if thrust[3] >= 0.0 else -thrust[3]
-
-        actuator_outputs_msg.control = thrust_command.flatten()
+        actuator_outputs_msg.control = thrust_command
         self.publisher_direct_actuator.publish(actuator_outputs_msg)
 
     def publish_sitl_odometry(self):
@@ -431,7 +404,7 @@ class SpacecraftMPC(Node):
         for predicted_state in x_pred:
             idx = idx + 1
             # Publish time history of the vehicle path
-            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
+            predicted_pose_msg = self.vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
             predicted_path_msg.header = predicted_pose_msg.header
             predicted_path_msg.poses.append(predicted_pose_msg)
         self.predicted_path_pub.publish(predicted_path_msg)
@@ -463,6 +436,19 @@ class SpacecraftMPC(Node):
         self.setpoint_attitude[1] = msg.pose.orientation.x
         self.setpoint_attitude[2] = msg.pose.orientation.y
         self.setpoint_attitude[3] = msg.pose.orientation.z
+    
+    def vector2PoseMsg(self, frame_id, position, attitude):
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.frame_id = frame_id
+        pose_msg.pose.orientation.w = attitude[0]
+        pose_msg.pose.orientation.x = attitude[1]
+        pose_msg.pose.orientation.y = attitude[2]
+        pose_msg.pose.orientation.z = attitude[3]
+        pose_msg.pose.position.x = float(position[0])
+        pose_msg.pose.position.y = float(position[1])
+        pose_msg.pose.position.z = float(position[2])
+        return pose_msg
 
 
 def main(args=None):
