@@ -75,9 +75,9 @@ class SpacecraftWrenchMPC():
         # set cost
         Q_mat = [5e1, 5e1, 5e1,
                  1e1, 1e1, 1e1,
-                 8e3,
+                 5e3,
                  1e1, 1e1, 1e1]
-        R_mat = [1e1] * 6
+        R_mat = [1e1, 1e1, 1e1, 10e1, 10e1, 10e1]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -125,14 +125,14 @@ class SpacecraftWrenchMPC():
         ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        # ocp.constraints.lbx = np.array([-5, -5, -120, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+        # ocp.constraints.ubx = np.array([+5, +5, -80, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
+        # ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 
-        # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        # # set constraints on X at the end of the horizon
+        # ocp.constraints.lbx_e = np.array([-5, -5, -120, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+        # ocp.constraints.ubx_e = np.array([+5, +5, -80, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
+        # ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 
         # set initial state
         ocp.constraints.x0 = x0
