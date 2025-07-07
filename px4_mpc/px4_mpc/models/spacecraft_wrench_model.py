@@ -37,7 +37,7 @@ import numpy as np
 
 class SpacecraftWrenchModel():
     def __init__(self):
-        self.name = 'spacecraft_direct_allocation_model'
+        self.name = 'spacecraft_wrench_model'
 
         # constants
         self.mass = 16.8
@@ -76,16 +76,10 @@ class SpacecraftWrenchModel():
         w      = cs.MX.sym('w', 3)
 
         x = cs.vertcat(p, v, q, w)
-        u = cs.MX.sym('u', 3)
+        u = cs.MX.sym('u', 6)
 
-        D_mat = cs.MX.zeros(3, 3)
-        D_mat[0, 0] = 1
-        D_mat[1, 1] = 1
-        D_mat[2, 2] = 1
-        F_2d = cs.mtimes(D_mat, u)
-
-        F = cs.vertcat(F_2d[0,0], F_2d[1,0], 0.0)
-        tau = cs.vertcat(0.0, 0.0, F_2d[2,0])
+        F = u[0:3]  # thrust vector
+        tau = u[3:6]  # torque vector
 
         # xdot
         p_dot      = cs.MX.sym('p_dot', 3)

@@ -73,16 +73,19 @@ class SpacecraftWrenchMPC():
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = np.diag([8e2, 8e2, 8e2,
-                         7e1, 7e1, 7e1,
-                         8e4,
-                         1e1, 1e1, 1e1])
-        Q_e = 20 * Q_mat
-        R_mat = 2 * np.diag([1e1, 1e1, 10e1])
+        Q_mat = [5e1, 5e1, 5e1,
+                 1e1, 1e1, 1e1,
+                 8e3,
+                 1e1, 1e1, 1e1]
+        R_mat = [1e1] * 6
+
+        ocp.cost.W_0 = np.diag(Q_mat + R_mat)
+        ocp.cost.W = np.diag(Q_mat + R_mat)
+        ocp.cost.W_e = 20 * np.diag(Q_mat)
 
         # References:
         x_ref = cs.MX.sym('x_ref', (13, 1))
-        u_ref = cs.MX.sym('u_ref', (3, 1))
+        u_ref = cs.MX.sym('u_ref', (6, 1))
 
         # Calculate errors
         # x : p,v,q,w               , R9 x SO(3)
@@ -99,22 +102,41 @@ class SpacecraftWrenchMPC():
         ocp.model.p = cs.vertcat(x_ref, u_ref)
 
         # define cost with parametric reference
-        ocp.cost.cost_type = 'EXTERNAL'
-        ocp.cost.cost_type_e = 'EXTERNAL'
+        ocp.cost.cost_type = 'NONLINEAR_LS'
+        ocp.cost.cost_type_e = 'NONLINEAR_LS'
+        ocp.cost.cost_type_0 = 'NONLINEAR_LS'
 
-        ocp.model.cost_expr_ext_cost = x_error.T @ Q_mat @ x_error + u_error.T @ R_mat @ u_error
-        ocp.model.cost_expr_ext_cost_e = x_error.T @ Q_e @ x_error
+        ocp.model.cost_y_expr_0 = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr_e = x_error
+
+        ocp.cost.yref_0 = np.array([0.0] * (nx - 3 + nu))
+        ocp.cost.yref = np.array([0.0] * (nx - 3 + nu))
+        ocp.cost.yref_e = np.array([0.0] * (nx - 3))
 
         # Initialize parameters
         p_0 = np.concatenate((x0, np.zeros(nu)))  # First step is error 0 since x_ref = x0
         ocp.parameter_values = p_0
 
-        # set constraints
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Tmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Tmax])
-        ocp.constraints.idxbu = np.array([0, 1, 2])
+        # set constraints on U
+        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -Tmax, -Tmax, -Tmax])
+        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, +Tmax, +Tmax, +Tmax])
+        ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
+        # set constraints on X
+        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+        # set constraints on X at the end of the horizon
+        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+        # set initial state
         ocp.constraints.x0 = x0
+
 
         # set options
         ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM' #'FULL_CONDENSING_DAQP' # FULL_CONDENSING_QPOASES
@@ -150,7 +172,6 @@ class SpacecraftWrenchMPC():
         # Set reference, create zero reference
         if ref is None:
             zero_ref = np.zeros(self.model.get_acados_model().x.size()[0] + self.model.get_acados_model().u.size()[0])
-            zero_ref[6] = 1.0
 
         for i in range(self.N+1):
             if ref is not None:

@@ -89,7 +89,7 @@ class SpacecraftDirectAllocationMPC():
 
         # Calculate errors
         # x : p,v,q,w               , R9 x SO(3)
-        # u : Fx,Fy,Fz,Mx,My,Mz     , R6
+        # u : u1,u2,u3,4 thrusts    , R4
         x = ocp.model.x
         u = ocp.model.u
 
