@@ -132,9 +132,16 @@ class SpacecraftMPC(Node):
         self.vehicle_status_timestamp = -np.inf
 
     def set_publishers_subscribers(self, qos_profile_pub, qos_profile_sub):
-        self.status_sub = self.create_subscription(
+        # Subscribe to both using the same callback
+        # - depending on PX4 version, one or the other will be used, but not both
+        self.status_sub_v1 = self.create_subscription(
             VehicleStatus,
             f'{self.namespace_prefix}/fmu/out/vehicle_status_v1',
+            self.vehicle_status_callback,
+            qos_profile_sub)
+        self.status_sub = self.create_subscription(
+            VehicleStatus,
+            f'{self.namespace_prefix}/fmu/out/vehicle_status',
             self.vehicle_status_callback,
             qos_profile_sub)
 
