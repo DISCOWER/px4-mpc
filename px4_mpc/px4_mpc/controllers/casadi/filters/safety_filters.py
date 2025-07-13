@@ -49,10 +49,15 @@ class SafetyFilter(Node):
         pass
 
 class HalfSpaceSafetyFilter(SafetyFilter):
-    def __init__(self):
+    def __init__(self, A: np.ndarray = None, b: np.ndarray = None,
+                       alpha: float = None, beta: float = None):
         """ Initialize the Half Space Safety Filter.
         :param model: The model of the system for which the safety filter is being defined.
         """
+        if A is not None and b is not None:
+            self.set_h_constants(A, b)
+        if alpha is not None and beta is not None:
+            self.set_controller_constants(alpha, beta)
         super().__init__('half_space_safety_filter')
     
     def set_h_constants(self, A: np.ndarray, b: np.ndarray):
@@ -63,6 +68,7 @@ class HalfSpaceSafetyFilter(SafetyFilter):
         """
         assert A is not None, "Matrix A must be provided for half-space constraints."
         assert b is not None, "Vector b must be provided for half-space constraints."
+        assert A.shape[1] == 3, "Currently only halfspace constraints on 3D position state are supported. Change the ineqs accordingly."
         assert A.shape[0] == b.shape[0], "Matrix A and vector b must have compatible dimensions."
         self.A = cs.SX(A) if isinstance(A, np.ndarray) else A
         self.b = cs.SX(b) if isinstance(b, np.ndarray) else b
@@ -87,6 +93,7 @@ class HalfSpaceSafetyFilter(SafetyFilter):
         if not hasattr(self, 'A') or not hasattr(self, 'b'):
             raise ValueError("Constants A and b must be set before calling setup.")
         if not hasattr(self, 'alpha') or not hasattr(self, 'beta'):
+            self.get_logger().warn("Controller constants alpha and beta not set. Using default values.")
             self.set_controller_constants()  # Set default constants if not set
 
         self.model = model

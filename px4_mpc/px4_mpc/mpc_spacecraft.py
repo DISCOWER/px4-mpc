@@ -67,16 +67,13 @@ class SpacecraftMPC(Node):
     def __init__(self):
         super().__init__('spacecraft_mpc')
 
-        #! Safety filters
         self.safety_filters = []
-        # Add basic safety filter: x >= 0
-        A = np.array([[-1.0, 0, 0]])
-        print(f"A: {A}")
-        b = np.array([0.0])
-        filter = HalfSpaceSafetyFilter()
-        filter.set_h_constants(A, b)
-        filter.set_controller_constants(alpha=2, beta=1)
-        self.safety_filters.append(filter)
+        #! Safety filters (supported for casadi framework, rate MPC)
+        # # Add basic safety filter: x >= 0
+        # A = np.array([[-1.0, 0, 0]])
+        # b = np.array([0.0])
+        # filter = HalfSpaceSafetyFilter(A=A, b=b, alpha=2, beta=1)
+        # self.safety_filters.append(filter)
         #! End of safety filters
 
         # Get mode; rate, wrench, direct_allocation
