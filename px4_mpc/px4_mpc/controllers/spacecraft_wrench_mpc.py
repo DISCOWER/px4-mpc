@@ -73,12 +73,15 @@ class SpacecraftWrenchMPC():
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = np.diag([8e2, 8e2, 8e2,
-                         7e1, 7e1, 7e1,
-                         8e4,
-                         1e1, 1e1, 1e1])
-        Q_e = 20 * Q_mat
-        R_mat = 2 * np.diag([1e1, 1e1, 10e1])
+        Q_mat = [8e2, 8e2, 8e2,
+                 7e1, 7e1, 7e1,
+                 8e4,
+                 1e1, 1e1, 1e1]
+        R_mat = [2e1, 2e1, 20e1]
+
+        ocp.cost.W_0 = np.diag(Q_mat + R_mat)
+        ocp.cost.W = np.diag(Q_mat + R_mat)
+        ocp.cost.W_e = 20 * np.diag(Q_mat)
 
         # References:
         x_ref = cs.MX.sym('x_ref', (13, 1))
@@ -99,21 +102,60 @@ class SpacecraftWrenchMPC():
         ocp.model.p = cs.vertcat(x_ref, u_ref)
 
         # define cost with parametric reference
-        ocp.cost.cost_type = 'EXTERNAL'
-        ocp.cost.cost_type_e = 'EXTERNAL'
+        ocp.cost.cost_type = 'NONLINEAR_LS'
+        ocp.cost.cost_type_e = 'NONLINEAR_LS'
+        ocp.cost.cost_type_0 = 'NONLINEAR_LS'
 
-        ocp.model.cost_expr_ext_cost = x_error.T @ Q_mat @ x_error + u_error.T @ R_mat @ u_error
-        ocp.model.cost_expr_ext_cost_e = x_error.T @ Q_e @ x_error
+        ocp.model.cost_y_expr_0 = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
+        ocp.model.cost_y_expr_e = x_error
+
+        ocp.cost.yref_0 = np.zeros(ocp.model.cost_y_expr_0.shape[0])
+        ocp.cost.yref = np.zeros(ocp.model.cost_y_expr.shape[0])
+        ocp.cost.yref_e = np.zeros(ocp.model.cost_y_expr_e.shape[0])
 
         # Initialize parameters
         p_0 = np.concatenate((x0, np.zeros(nu)))  # First step is error 0 since x_ref = x0
         ocp.parameter_values = p_0
 
-        # set constraints
+        # set constraints on U
         ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Tmax])
         ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Tmax])
         ocp.constraints.idxbu = np.array([0, 1, 2])
 
+        # set constraints on X
+        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+
+        # set constraints on X at the end of the horizon
+        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+
+        # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
+        # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.
+
+        # Soft constraints are turned on by setting weights for slack variables
+        # TODO: This should be configured by config file
+        use_soft_constraints = True
+        if use_soft_constraints:
+            # set weights slack variables for X constraints
+            ocp.constraints.idxsbx = np.arange(len(ocp.constraints.idxbx))
+            ocp.cost.Zl = np.array([1e6]*len(ocp.constraints.idxsbx))
+            ocp.cost.Zu = np.array([1e6]*len(ocp.constraints.idxsbx))
+            ocp.cost.zl = np.array([0.0]*len(ocp.constraints.idxsbx))
+            ocp.cost.zu = np.array([0.0]*len(ocp.constraints.idxsbx))
+
+            # set weights slack variables for X_e constraints
+            ocp.constraints.idxsbx_e = np.arange(len(ocp.constraints.idxbx_e))
+            ocp.cost.Zl_e = np.array([1e6]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.Zu_e = np.array([1e6]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.zl_e = np.array([0.0]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.zu_e = np.array([0.0]*len(ocp.constraints.idxsbx_e))
+
+        # set initial state
         ocp.constraints.x0 = x0
 
         # set options

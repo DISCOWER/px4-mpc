@@ -88,8 +88,8 @@ class SpacecraftDirectAllocationMPC():
         u_ref = cs.MX.sym('u_ref', (4, 1))
 
         # Calculate errors
-        # x : p,v,q,w               , R9 x SO(3)
-        # u : Fx,Fy,Fz,Mx,My,Mz     , R6
+        # x : p,v,q,w                               , R9 x SO(3)
+        # u : Thruster pairs (0&1, 2&3, 4&5, 6&7)   , R4
         x = ocp.model.x
         u = ocp.model.u
 
@@ -111,9 +111,9 @@ class SpacecraftDirectAllocationMPC():
         ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr_e = x_error
 
-        ocp.cost.yref_0 = np.array([0.0] * (nx - 3 + nu))
-        ocp.cost.yref = np.array([0.0] * (nx - 3 + nu))
-        ocp.cost.yref_e = np.array([0.0] * (nx - 3))
+        ocp.cost.yref_0 = np.zeros(ocp.model.cost_y_expr_0.shape[0])
+        ocp.cost.yref = np.zeros(ocp.model.cost_y_expr.shape[0])
+        ocp.cost.yref_e = np.zeros(ocp.model.cost_y_expr_e.shape[0])
 
         # Initialize parameters
         p_0 = np.concatenate((x0, np.zeros(nu)))  # First step is error 0 since x_ref = x0
@@ -125,14 +125,35 @@ class SpacecraftDirectAllocationMPC():
         ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
 
         # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+
+        # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
+        # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.
+
+        # Soft constraints are turned on by setting weights for slack variables
+        # TODO: This should be configured by config file
+        use_soft_constraints = True
+        if use_soft_constraints:
+            # set weights slack variables for X constraints
+            ocp.constraints.idxsbx = np.arange(len(ocp.constraints.idxbx))
+            ocp.cost.Zl = np.array([1e6]*len(ocp.constraints.idxsbx))
+            ocp.cost.Zu = np.array([1e6]*len(ocp.constraints.idxsbx))
+            ocp.cost.zl = np.array([0.0]*len(ocp.constraints.idxsbx))
+            ocp.cost.zu = np.array([0.0]*len(ocp.constraints.idxsbx))
+
+            # set weights slack variables for X_e constraints
+            ocp.constraints.idxsbx_e = np.arange(len(ocp.constraints.idxbx_e))
+            ocp.cost.Zl_e = np.array([1e6]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.Zu_e = np.array([1e6]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.zl_e = np.array([0.0]*len(ocp.constraints.idxsbx_e))
+            ocp.cost.zu_e = np.array([0.0]*len(ocp.constraints.idxsbx_e))
 
         # set initial state
         ocp.constraints.x0 = x0
