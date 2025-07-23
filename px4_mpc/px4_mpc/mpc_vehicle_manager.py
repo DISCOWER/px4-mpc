@@ -5,10 +5,44 @@ from mavsdk.offboard import OffboardError, VelocityNedYaw
 from mavsdk.telemetry import FlightMode
 
 
+CONNECTION_ADDRESSES = [
+    "udpin://0.0.0.0:14540",
+    "udpin://0.0.0.0:14550",
+]
+
+CONNECTION_TIMEOUT = 2  # seconds
+
+
+async def try_connect(address: str, timeout: float):
+    drone = System()
+    try:
+        await asyncio.wait_for(drone.connect(system_address=address), timeout)
+        print(f"Connected successfully to {address}")
+        return drone
+    except asyncio.TimeoutError:
+        print(f"Connection to {address} timed out.")
+    except Exception as e:
+        print(f"Connection to {address} failed with error: {e}")
+    return None
+
+
+async def connect_to_any():
+    for address in CONNECTION_ADDRESSES:
+        print(f"Trying to connect to {address}...")
+        drone = await try_connect(address, CONNECTION_TIMEOUT)
+        if drone:
+            return drone
+    print("Failed to connect to any address.")
+    return None
+
+
 async def run():
 
-    drone = System()
-    await drone.connect(system_address="udpin://0.0.0.0:14540")
+    print("-- Starting PX4 MPC Vehicle Manager. Finding vehicle...")
+    drone = await connect_to_any()
+    if not drone:
+        print("No vehicle found. Exiting.")
+        return
 
     status_text_task = asyncio.ensure_future(print_status_text(drone))
 
@@ -23,10 +57,10 @@ async def run():
     async for mode in drone.telemetry.flight_mode():
         print(f"Flight mode: {mode}")
         if mode == FlightMode.OFFBOARD:
-            print("✅ Vehicle is in OFFBOARD mode.")
+            print("Vehicle is in OFFBOARD mode.")
             break
         else:
-            print("❌ Vehicle is not in OFFBOARD mode. Starting offboard mode...")
+            print("Vehicle is not in OFFBOARD mode. Starting offboard mode...")
             try:
                 await drone.offboard.set_velocity_ned(
                     VelocityNedYaw(0.0, 0.0, 0.0, 0.0)
@@ -35,8 +69,10 @@ async def run():
                 print("-- Offboard mode started successfully")
                 break
             except OffboardError as error:
-                print(f"Starting offboard mode failed with error code: \
-                    {error._result.result}")
+                print(
+                    f"Starting offboard mode failed with error code: \
+                    {error._result.result}"
+                )
                 print("Retrying in 5 seconds...")
                 await asyncio.sleep(5)
 
@@ -70,3 +106,7 @@ async def print_status_text(drone):
 def main():
     # Run the asyncio loop
     asyncio.run(run())
+
+
+if __name__ == "__main__":
+    main()
