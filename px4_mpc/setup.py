@@ -16,7 +16,7 @@ setup(
         # (os.path.join('share', package_name), glob('launch/*.[pxy][yma]*')),
         (os.path.join('share', package_name), glob(os.path.join('px4_mpc/config', '*.rviz'))),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'mavsdk', 'asyncio'],
     zip_safe=True,
     maintainer='jaeyoung',
     maintainer_email='jalim@ethz.ch',
@@ -28,6 +28,7 @@ setup(
                 'mpc_spacecraft = px4_mpc.mpc_spacecraft:main',
                 'test_setpoints = px4_mpc.test.test_setpoints:main',
                 'rviz_pos_marker = px4_mpc.rviz_pos_marker:main',
+                'mpc_vehicle_manager = px4_mpc.mpc_vehicle_manager:main',
         ],
     },
 )

@@ -37,7 +37,7 @@ __contact__ = "padr@kth.se, jalim@ethz.ch"
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, EnvironmentVariable, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -68,49 +68,65 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     setpoint_from_rviz = LaunchConfiguration('setpoint_from_rviz')
 
-    return LaunchDescription([
-        mode_arg,
-        namespace_arg,
-        setpoint_from_rviz_arg,
-        Node(
-            package='px4_mpc',
-            namespace=namespace,
-            executable='mpc_spacecraft',
-            name='mpc_spacecraft',
-            output='screen',
-            emulate_tty=True,
-            parameters=[
-                {'mode': mode},
-                {'setpoint_from_rviz': setpoint_from_rviz}
-            ]
-        ),
-        Node(
-            package='px4_mpc',
-            namespace=namespace,
-            executable='rviz_pos_marker',
-            name='rviz_pos_marker',
-            output='screen',
-            emulate_tty=True,
-            condition=IfCondition(setpoint_from_rviz)
-        ),
-        Node(
-            package='px4_mpc',
-            namespace=namespace,
-            executable='test_setpoints',
-            name='test_setpoints',
-            output='screen',
-            emulate_tty=True,
-            condition=UnlessCondition(setpoint_from_rviz)
-        ),
-        Node(
-            package='px4_offboard',
-            namespace=namespace,
-            executable='visualizer',
-            name='visualizer',
-            condition=IfCondition(setpoint_from_rviz)
-        ),
-        OpaqueFunction(function=launch_setup),
-    ])
+    return LaunchDescription(
+        [
+            mode_arg,
+            namespace_arg,
+            setpoint_from_rviz_arg,
+            Node(
+                package="px4_mpc",
+                namespace=namespace,
+                executable="mpc_spacecraft",
+                name="mpc_spacecraft",
+                output="screen",
+                emulate_tty=True,
+                parameters=[{"mode": mode}, {"setpoint_from_rviz": setpoint_from_rviz}],
+            ),
+            Node(
+                package="px4_mpc",
+                namespace=namespace,
+                executable="mpc_vehicle_manager",
+                name="mpc_vehicle_manager",
+                output="screen",
+                emulate_tty=True,
+                condition=IfCondition(
+                    PythonExpression(
+                        [
+                            "'1' == '",
+                            EnvironmentVariable("DOCKER_ENV", default_value="0"),
+                            "'",
+                        ]
+                    )
+                ),
+            ),
+            Node(
+                package="px4_mpc",
+                namespace=namespace,
+                executable="rviz_pos_marker",
+                name="rviz_pos_marker",
+                output="screen",
+                emulate_tty=True,
+                condition=IfCondition(setpoint_from_rviz),
+            ),
+            Node(
+                package="px4_mpc",
+                namespace=namespace,
+                executable="test_setpoints",
+                name="test_setpoints",
+                output="screen",
+                emulate_tty=True,
+                condition=UnlessCondition(setpoint_from_rviz),
+            ),
+            Node(
+                package="px4_offboard",
+                namespace=namespace,
+                executable="visualizer",
+                name="visualizer",
+                condition=IfCondition(setpoint_from_rviz),
+            ),
+            OpaqueFunction(function=launch_setup),
+        ]
+    )
 
 def patch_rviz_config(original_config_path, namespace):
     """
@@ -121,7 +137,7 @@ def patch_rviz_config(original_config_path, namespace):
 
     # Replace placeholder with actual namespace
     content = content.replace('__NS__', f'/{namespace}' if namespace else '')
-    
+
     # Write to temporary file
     tmp_rviz_config = tempfile.NamedTemporaryFile(delete=False, suffix='.rviz')
     tmp_rviz_config.write(content.encode('utf-8'))
