@@ -264,24 +264,29 @@ class SpacecraftMPC(Node):
         pub.publish(msg)
 
     def publish_rate_setpoint(self, u_pred):
-        thrust_rates = u_pred[0, :]
-        thrust_command = thrust_rates[0:3]
+        F_cmd = u_pred[0, 0:3]
+        w_cmd = u_pred[0, 3:6]
+
+        # The PX4 uses normalized force input. Scaling with respect to the maximum force.
+        F_scaling = 1/(2 * 1.5)
+        F_cmd *= F_scaling
+
         rates_setpoint_msg = VehicleRatesSetpoint()
         rates_setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-        rates_setpoint_msg.roll  = float(thrust_rates[3])
-        rates_setpoint_msg.pitch = -float(thrust_rates[4])
-        rates_setpoint_msg.yaw   = -float(thrust_rates[5])
-        rates_setpoint_msg.thrust_body[0] = float(thrust_command[0])
-        rates_setpoint_msg.thrust_body[1] = -float(thrust_command[1])
-        rates_setpoint_msg.thrust_body[2] = -float(thrust_command[2])
+        rates_setpoint_msg.roll  = float(w_cmd[0])
+        rates_setpoint_msg.pitch = -float(w_cmd[1])
+        rates_setpoint_msg.yaw   = -float(w_cmd[2])
+        rates_setpoint_msg.thrust_body[0] = float(F_cmd[0])
+        rates_setpoint_msg.thrust_body[1] = -float(F_cmd[1])
+        rates_setpoint_msg.thrust_body[2] = -float(F_cmd[2])
         self.publisher_rates_setpoint.publish(rates_setpoint_msg)
 
     def publish_wrench_setpoint(self, u_pred):
         # u_pred is [Fx, Fy, Tz]] in FLU frame
-        
-        # The PX4 uses normalized wrench input. Scaling with respect to the maximum force and torque
-        F_scaling = 1/(2 * 1.4)
-        T_scaling = 1/(4 * 0.12 * 1.4)
+
+        # The PX4 uses normalized wrench input. Scaling with respect to the maximum force and torque.
+        F_scaling = 1/(2 * 1.5)
+        T_scaling = 1/(4 * 0.12 * 1.5)
         u_pred[0, 0] *= F_scaling
         u_pred[0, 1] *= F_scaling
         u_pred[0, 2] *= T_scaling

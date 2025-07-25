@@ -76,8 +76,8 @@ class SpacecraftRateMPC():
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = [5e0, 5e0, 5e0, 8e-1, 8e-1, 8e-1, 8e3]
-        R_mat = [2e-3, 2e-3, 2e-3, 4e0, 4e0, 4e0]
+        Q_mat = [8e2, 8e2, 8e2, 7e1, 7e1, 7e1, 8e4]
+        R_mat = [2e1, 2e1, 2e1, 1e2, 1e2, 1e2]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)

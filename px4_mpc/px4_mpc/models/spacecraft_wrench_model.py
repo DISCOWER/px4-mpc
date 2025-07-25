@@ -40,10 +40,10 @@ class SpacecraftWrenchModel():
         self.name = 'spacecraft_direct_allocation_model'
 
         # constants
-        self.mass = 16.8
-        self.inertia = np.diag((0.1454, 0.1366, 0.1594))
-        self.max_thrust = 1.5
-        self.max_torque = 0.5
+        self.mass = 17.8
+        self.inertia = np.diag([0.315]*3)
+        self.max_thrust = 2 * 1.5
+        self.max_torque = 4 * 0.12 * 1.5
 
     def get_acados_model(self) -> AcadosModel:
         def skew_symmetric(v):
