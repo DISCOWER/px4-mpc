@@ -132,7 +132,7 @@ class SpacecraftMPC(Node):
         # - depending on PX4 version, one or the other will be used, but not both
         self.status_sub_v1 = self.create_subscription(
             VehicleStatus,
-            '/fmu/out/vehicle_status_v1',
+            'fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
         self.status_sub = self.create_subscription(
@@ -277,6 +277,15 @@ class SpacecraftMPC(Node):
         self.publisher_rates_setpoint.publish(rates_setpoint_msg)
 
     def publish_wrench_setpoint(self, u_pred):
+        # u_pred is [Fx, Fy, Tz]] in FLU frame
+        
+        # The PX4 uses normalized wrench input. Scaling with respect to the maximum force and torque
+        F_scaling = 1/(2 * 1.4)
+        T_scaling = 1/(4 * 0.12 * 1.4)
+        u_pred[0, 0] *= F_scaling
+        u_pred[0, 1] *= F_scaling
+        u_pred[0, 2] *= T_scaling
+
         thrust_outputs_msg = VehicleThrustSetpoint()
         thrust_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
