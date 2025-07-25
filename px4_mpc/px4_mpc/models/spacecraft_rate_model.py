@@ -39,9 +39,9 @@ class SpacecraftRateModel():
         self.name = 'spacecraft_rate_model'
 
         # constants
-        self.mass = 15.0
-        self.max_thrust = 1.5
-        self.max_rate = 0.5
+        self.mass = 17.8
+        self.max_thrust = 2 * 1.5
+        self.max_rate = 4 * 0.12 * 1.5
 
     def get_acados_model(self) -> AcadosModel:
         def skew_symmetric(v):
