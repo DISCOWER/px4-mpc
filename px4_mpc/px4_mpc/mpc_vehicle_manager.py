@@ -8,6 +8,7 @@ from mavsdk.telemetry import FlightMode
 CONNECTION_ADDRESSES = [
     "udpin://0.0.0.0:14540",
     "udpin://0.0.0.0:14550",
+    "tcpin://localhost:5760"
 ]
 
 CONNECTION_TIMEOUT = 2  # seconds
