@@ -6,12 +6,14 @@ from mavsdk.telemetry import FlightMode
 
 
 CONNECTION_ADDRESSES = [
-    "udpin://0.0.0.0:14540",
-    "udpin://0.0.0.0:14550",
-    "tcpin://localhost:5760"
+        "udpin://0.0.0.0:14540",
+        "udpout://0.0.0.0:14540",
+        "udpout://0.0.0.0:14550",
+        "udpin://0.0.0.0:14550",
+        "tcpin://0.0.0.0:5760",
 ]
 
-CONNECTION_TIMEOUT = 2  # seconds
+CONNECTION_TIMEOUT = 5  # seconds
 
 
 async def try_connect(address: str, timeout: float):
