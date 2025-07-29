@@ -13,16 +13,24 @@ class SetpointPublisher(Node):
         self.namespace = self.declare_parameter('namespace', '').value
         self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
 
-        self.publisher_ = self.create_publisher(PoseStamped, f'{self.namespace_prefix}/px4_mpc/setpoint_pose', 10)
+        #! FIX THIS
+        self.publisher_ = self.create_publisher(PoseStamped, f'/itrl_rov_1/px4_mpc/setpoint_pose', 10)
         self.timer_period = 0.01  # seconds
         time.sleep(5) # Give time for all inits...
         self.counter = 0
+        # self.setpoints = [
+        #     (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        #     (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        #     (1.0, 0.0, 0.0, 0.0, 0.0, 0.383, 0.924),
+        #     (1.0, 1.0, 0.0, 0.0, 0.0, 0.707, 0.707),
+        #     (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        # ]
         self.setpoints = [
-            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-            (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-            (1.0, 0.0, 0.0, 0.0, 0.0, 0.383, 0.924),
-            (1.0, 1.0, 0.0, 0.0, 0.0, 0.707, 0.707),
-            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+            (5.0, 0.0, 1.5, 0.0, 0.0, 0.0, 1.0),
+            (4.0, 0.0, 1.5, 0.0, 0.0, 0.0, 1.0),
+            (4.0, 0.0, 1.5, 0.0, 0.0, 0.383, 0.924),
+            (4.0, 1.0, 1.5, 0.0, 0.0, 0.707, 0.707),
+            (5.0, 0.0, 1.5, 0.0, 0.0, 0.0, 1.0),
         ]
         self.index = -1
         self.timer = self.create_timer(self.timer_period, self.timer_callback)

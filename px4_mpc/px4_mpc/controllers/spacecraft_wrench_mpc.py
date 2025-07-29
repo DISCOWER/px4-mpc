@@ -77,7 +77,7 @@ class SpacecraftWrenchMPC():
                  7e1, 7e1, 7e1,
                  8e4,
                  1e1, 1e1, 1e1]
-        R_mat = [2e1, 2e1, 20e1]
+        R_mat = [2e1, 2e1, 2e1, 20e1, 20e1, 20e1]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -85,7 +85,7 @@ class SpacecraftWrenchMPC():
 
         # References:
         x_ref = cs.MX.sym('x_ref', (13, 1))
-        u_ref = cs.MX.sym('u_ref', (3, 1))
+        u_ref = cs.MX.sym('u_ref', (6, 1))
 
         # Calculate errors
         # x : p,v,q,w               , R9 x SO(3)
@@ -120,26 +120,28 @@ class SpacecraftWrenchMPC():
         ocp.parameter_values = p_0
 
         # set constraints on U
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Tmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Tmax])
-        ocp.constraints.idxbu = np.array([0, 1, 2])
+        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -Tmax, -Tmax, -Tmax])
+        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, +Tmax, +Tmax, +Tmax])
+        ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+        state_constraints = False
+        if state_constraints:
+            ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+            ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+            ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
 
-        # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+            # set constraints on X at the end of the horizon
+            ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
+            ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+            ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
 
         # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
         # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.
 
         # Soft constraints are turned on by setting weights for slack variables
         # TODO: This should be configured by config file
-        use_soft_constraints = True
+        use_soft_constraints = False
         if use_soft_constraints:
             # set weights slack variables for X constraints
             ocp.constraints.idxsbx = np.arange(len(ocp.constraints.idxbx))

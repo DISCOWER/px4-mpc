@@ -58,8 +58,8 @@ from px4_msgs.msg import VehicleThrustSetpoint
 
 from mpc_msgs.srv import SetPose
 
-DATA_VALIDITY_STREAM = 0.5 # seconds, threshold for (pos,att,vel) messages
-DATA_VALIDITY_STATUS = 2.0 # seconds, threshold for status message
+DATA_VALIDITY_STREAM = 2.0 # seconds, threshold for (pos,att,vel) messages
+DATA_VALIDITY_STATUS = 5.0 # seconds, threshold for status message
 
 class SpacecraftMPC(Node):
 
@@ -126,13 +126,14 @@ class SpacecraftMPC(Node):
         self.vehicle_local_position_timestamp = -np.inf
         self.vehicle_angular_velocity_timestamp = -np.inf
         self.vehicle_status_timestamp = -np.inf
+        self.ref_timestamp = -np.inf
 
     def set_publishers_subscribers(self, qos_profile_pub, qos_profile_sub):
         # Subscribe to both using the same callback
         # - depending on PX4 version, one or the other will be used, but not both
         self.status_sub_v1 = self.create_subscription(
             VehicleStatus,
-            '/fmu/out/vehicle_status_v1',
+            'fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
         self.status_sub = self.create_subscription(
@@ -283,8 +284,18 @@ class SpacecraftMPC(Node):
         torque_outputs_msg = VehicleTorqueSetpoint()
         torque_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
-        torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        if False:
+            force_clip = 0.2
+            torque_clip = 0.1
+            u_pred[0, 0] = np.clip(u_pred[0, 0], -force_clip, force_clip)
+            u_pred[0, 1] = np.clip(u_pred[0, 1], -force_clip, force_clip)
+            u_pred[0, 2] = np.clip(u_pred[0, 2], -force_clip, force_clip)
+            u_pred[0, 3] = np.clip(u_pred[0, 3], -torque_clip, torque_clip)
+            u_pred[0, 4] = np.clip(u_pred[0, 4], -torque_clip, torque_clip)
+            u_pred[0, 5] = np.clip(u_pred[0, 5], -torque_clip, torque_clip)
+
+        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -u_pred[0, 2]]
+        torque_outputs_msg.xyz = [u_pred[0, 3], -u_pred[0, 4], -u_pred[0, 5]]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
         self.publisher_torque_setpoint.publish(torque_outputs_msg)
@@ -332,12 +343,19 @@ class SpacecraftMPC(Node):
         # Check if the data is valid based on the timestamps
         if (current_time - self.vehicle_attitude_timestamp > DATA_VALIDITY_STREAM or
             current_time - self.vehicle_local_position_timestamp > DATA_VALIDITY_STREAM or
-            current_time - self.vehicle_angular_velocity_timestamp > DATA_VALIDITY_STREAM):
+            current_time - self.vehicle_angular_velocity_timestamp > DATA_VALIDITY_STREAM or
+            current_time - self.ref_timestamp > DATA_VALIDITY_STREAM):
             self.get_logger().warn("Vehicle attitude, position, or angular velocity data is too old. Skipping offboard control...")
+            output_string = f"Vehicle attitude timestamp: {current_time - self.vehicle_attitude_timestamp}, " \
+                              f"Vehicle local position timestamp: {current_time - self.vehicle_local_position_timestamp}, " \
+                              f"Vehicle angular velocity timestamp: {current_time - self.vehicle_angular_velocity_timestamp}, " \
+                              f"Reference timestamp: {current_time - self.ref_timestamp}"
+            self.get_logger().warn(output_string, throttle_duration_sec=1.0)
             return False
 
         if (current_time - self.vehicle_status_timestamp > DATA_VALIDITY_STATUS):
             self.get_logger().warn("Vehicle status data is too old. Skipping offboard control...")
+            self.get_logger().warn(f"Vehicle status timestamp: {current_time - self.vehicle_status_timestamp}", throttle_duration_sec=1.0)
             return False
 
         return True
@@ -404,7 +422,7 @@ class SpacecraftMPC(Node):
                                   np.zeros(3),                  # velocity
                                   self.setpoint_attitude,       # attitude
                                   np.zeros(3),                  # angular velocity
-                                  np.zeros(3)), axis=0)         # inputs reference (F, torque)
+                                  np.zeros(6)), axis=0)         # inputs reference (F, torque)
             ref = np.repeat(ref.reshape((-1, 1)), self.mpc.N + 1, axis=1)
         elif self.mode == 'direct_allocation':
             x0 = np.array([self.vehicle_local_position[0],
@@ -430,6 +448,7 @@ class SpacecraftMPC(Node):
             raise ValueError(f'Invalid mode: {self.mode}')
 
         # Solve MPC
+        self.get_logger().info("State: \n" + str(x0.flatten()), throttle_duration_sec=1.0)
         u_pred, x_pred = self.mpc.solve(x0, ref=ref)
 
         # Colect data
@@ -463,6 +482,7 @@ class SpacecraftMPC(Node):
         return response
 
     def get_setpoint_pose_callback(self, msg):
+        self.ref_timestamp = Clock().now().nanoseconds / 1e9
         self.setpoint_position[0] = msg.pose.position.x
         self.setpoint_position[1] = msg.pose.position.y
         self.setpoint_position[2] = msg.pose.position.z
@@ -470,6 +490,8 @@ class SpacecraftMPC(Node):
         self.setpoint_attitude[1] = msg.pose.orientation.x
         self.setpoint_attitude[2] = msg.pose.orientation.y
         self.setpoint_attitude[3] = msg.pose.orientation.z
+        self.get_logger().info("Reference: \n Pos: " + str(self.setpoint_position.flatten()) +
+                               "\n Att: " + str(self.setpoint_attitude.flatten()), throttle_duration_sec=1.0)
 
     def vector2PoseMsg(self, frame_id, position, attitude):
         pose_msg = PoseStamped()
