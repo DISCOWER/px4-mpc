@@ -42,8 +42,8 @@ class SpacecraftWrenchModel():
         # constants
         self.mass = 16.8
         self.inertia = np.diag((0.1454, 0.1366, 0.1594))
-        self.max_thrust = 1.5
-        self.max_torque = 0.5
+        self.max_thrust = [130.4, 130.4, 184.4]  # 4.7kg f
+        self.max_torque = [184.4*0.12, 184.4*0.22, 130.4*0.14]  # 0.12m arm length
 
     def get_acados_model(self) -> AcadosModel:
         def skew_symmetric(v):

@@ -75,9 +75,9 @@ class SpacecraftWrenchMPC():
         # set cost
         Q_mat = [8e2, 8e2, 8e2,
                  7e1, 7e1, 7e1,
-                 8e4,
+                 6e4,
                  1e1, 1e1, 1e1]
-        R_mat = [2e1, 2e1, 2e1, 20e1, 20e1, 20e1]
+        R_mat = [5e1, 5e1, 5e1, 50e1, 50e1, 20e1]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -120,8 +120,8 @@ class SpacecraftWrenchMPC():
         ocp.parameter_values = p_0
 
         # set constraints on U
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -Tmax, -Tmax, -Tmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, +Tmax, +Tmax, +Tmax])
+        ocp.constraints.lbu = np.array([-Fmax[0], -Fmax[1], -Fmax[2], -Tmax[0], -Tmax[1], -Tmax[2]])
+        ocp.constraints.ubu = np.array([+Fmax[0], +Fmax[1], +Fmax[2], +Tmax[0], +Tmax[1], +Tmax[2]])
         ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X

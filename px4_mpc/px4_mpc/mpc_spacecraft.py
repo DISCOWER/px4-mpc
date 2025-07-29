@@ -68,7 +68,7 @@ class SpacecraftMPC(Node):
 
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
-        self.sitl = True
+        self.sitl = False
 
         # Get setpoint from rviz (true/false)
         self.setpoint_from_rviz = self.declare_parameter('setpoint_from_rviz', False).value
@@ -294,7 +294,18 @@ class SpacecraftMPC(Node):
             u_pred[0, 4] = np.clip(u_pred[0, 4], -torque_clip, torque_clip)
             u_pred[0, 5] = np.clip(u_pred[0, 5], -torque_clip, torque_clip)
 
-        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -u_pred[0, 2]]
+        # Scaling (normalized control allocation in PX4)
+        hover_thrust = 0.12 # 0.13 at some point
+        lateral_gain = 7.5
+        u_pred[0, 0] /= self.model.max_thrust[0]
+        u_pred[0, 1] /= self.model.max_thrust[1]
+        u_pred[0, 2] /= self.model.max_thrust[2]
+        u_pred[0, 3] /= self.model.max_torque[0]
+        u_pred[0, 4] /= self.model.max_torque[1]
+        u_pred[0, 5] /= self.model.max_torque[2]
+        self.get_logger().info(f"Thrust: {u_pred[0, 0]}, {u_pred[0, 1]}, {u_pred[0, 2]} - {hover_thrust}", throttle_duration_sec=1.0)
+
+        thrust_outputs_msg.xyz = [u_pred[0, 0] * lateral_gain, -u_pred[0, 1] * lateral_gain, -u_pred[0, 2] + hover_thrust]
         torque_outputs_msg.xyz = [u_pred[0, 3], -u_pred[0, 4], -u_pred[0, 5]]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
@@ -345,7 +356,7 @@ class SpacecraftMPC(Node):
             current_time - self.vehicle_local_position_timestamp > DATA_VALIDITY_STREAM or
             current_time - self.vehicle_angular_velocity_timestamp > DATA_VALIDITY_STREAM or
             current_time - self.ref_timestamp > DATA_VALIDITY_STREAM):
-            self.get_logger().warn("Vehicle attitude, position, or angular velocity data is too old. Skipping offboard control...")
+            self.get_logger().warn("Vehicle attitude, position, or angular velocity data is too old. Skipping offboard control...", throttle_duration_sec=1.0)
             output_string = f"Vehicle attitude timestamp: {current_time - self.vehicle_attitude_timestamp}, " \
                               f"Vehicle local position timestamp: {current_time - self.vehicle_local_position_timestamp}, " \
                               f"Vehicle angular velocity timestamp: {current_time - self.vehicle_angular_velocity_timestamp}, " \
@@ -354,7 +365,7 @@ class SpacecraftMPC(Node):
             return False
 
         if (current_time - self.vehicle_status_timestamp > DATA_VALIDITY_STATUS):
-            self.get_logger().warn("Vehicle status data is too old. Skipping offboard control...")
+            self.get_logger().warn("Vehicle status data is too old. Skipping offboard control...", throttle_duration_sec=1.0)
             self.get_logger().warn(f"Vehicle status timestamp: {current_time - self.vehicle_status_timestamp}", throttle_duration_sec=1.0)
             return False
 
