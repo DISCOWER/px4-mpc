@@ -88,6 +88,11 @@ class QuadrotorMPC(Node):
             'fmu/out/vehicle_status',
             self.vehicle_status_callback,
             qos_profile_sub)
+        self.status_sub = self.create_subscription(
+            VehicleStatus,
+            'fmu/out/vehicle_status_v1',
+            self.vehicle_status_callback,
+            qos_profile_sub)
 
         self.attitude_sub = self.create_subscription(
             VehicleAttitude,
@@ -97,6 +102,11 @@ class QuadrotorMPC(Node):
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
             'fmu/out/vehicle_local_position',
+            self.vehicle_local_position_callback,
+            qos_profile_sub)
+        self.local_position_sub = self.create_subscription(
+            VehicleLocalPosition,
+            'fmu/out/vehicle_local_position_v1',
             self.vehicle_local_position_callback,
             qos_profile_sub)
 
@@ -164,7 +174,7 @@ class QuadrotorMPC(Node):
         # print("NAV_STATUS: ", msg.nav_state)
         # print("  - offboard status: ", VehicleStatus.NAVIGATION_STATE_OFFBOARD)
         self.nav_state = msg.nav_state
-    
+
     def publish_reference(self, pub, reference):
         msg = Marker()
         msg.action = Marker.ADD
@@ -204,7 +214,7 @@ class QuadrotorMPC(Node):
         error_position = self.vehicle_local_position - self.setpoint_position
 
         x0 = np.array([error_position[0], error_position[1], error_position[2],
-         self.vehicle_local_velocity[0], self.vehicle_local_velocity[1], self.vehicle_local_velocity[2], 
+         self.vehicle_local_velocity[0], self.vehicle_local_velocity[1], self.vehicle_local_velocity[2],
          self.vehicle_attitude[0], self.vehicle_attitude[1], self.vehicle_attitude[2], self.vehicle_attitude[3]]).reshape(10, 1)
 
         u_pred, x_pred = self.mpc.solve(x0)
@@ -240,7 +250,7 @@ class QuadrotorMPC(Node):
         self.setpoint_position[2] = request.pose.position.z
 
         return response
-    
+
     def vector2PoseMsg(self, frame_id, position, attitude):
         pose_msg = PoseStamped()
         pose_msg.header.stamp = self.get_clock().now().to_msg()
