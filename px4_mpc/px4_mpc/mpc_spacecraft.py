@@ -295,7 +295,7 @@ class SpacecraftMPC(Node):
             u_pred[0, 5] = np.clip(u_pred[0, 5], -torque_clip, torque_clip)
 
         # Scaling (normalized control allocation in PX4)
-        hover_thrust = 0.12 # 0.13 at some point
+        hover_thrust = 0.125 # 0.13 at some point
         lateral_gain = 7.5
         u_pred[0, 0] /= self.model.max_thrust[0]
         u_pred[0, 1] /= self.model.max_thrust[1]
