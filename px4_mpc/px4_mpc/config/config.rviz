@@ -66,7 +66,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_visualizer/vehicle_pose
+        Value: __NS__/px4_visualizer/vehicle_pose
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -94,7 +94,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_visualizer/vehicle_path
+        Value: __NS__/px4_visualizer/vehicle_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -122,14 +122,14 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_mpc/predicted_path
+        Value: __NS__/px4_mpc/predicted_path
       Value: true
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
-      Interactive Markers Namespace: /rviz_target_pose_marker
+      Interactive Markers Namespace: __NS__/rviz_target_pose_marker
       Name: InteractiveMarkers
-      Show Axes: false
+      Show Axes: true
       Show Descriptions: true
       Show Visual Aids: false
       Value: true
@@ -144,7 +144,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_mpc/reference
+        Value: __NS__/px4_mpc/reference
       Value: true
   Enabled: true
   Global Options:

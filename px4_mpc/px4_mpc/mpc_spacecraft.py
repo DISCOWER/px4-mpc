@@ -36,6 +36,7 @@ __author__ = "Pedro Roque, Jaeyoung Lim"
 __contact__ = "padr@kth.se, jalim@ethz.ch"
 
 import rclpy
+import time
 import numpy as np
 from rclpy.node import Node
 from rclpy.clock import Clock
@@ -57,21 +58,8 @@ from px4_msgs.msg import VehicleThrustSetpoint
 
 from mpc_msgs.srv import SetPose
 
-
-def vector2PoseMsg(frame_id, position, attitude):
-    pose_msg = PoseStamped()
-    # msg.header.stamp = Clock().now().nanoseconds / 1000
-    pose_msg.header.frame_id = frame_id
-    pose_msg.header.frame_id = frame_id
-    pose_msg.pose.orientation.w = attitude[0]
-    pose_msg.pose.orientation.x = attitude[1]
-    pose_msg.pose.orientation.y = attitude[2]
-    pose_msg.pose.orientation.z = attitude[3]
-    pose_msg.pose.position.x = float(position[0])
-    pose_msg.pose.position.y = float(position[1])
-    pose_msg.pose.position.z = float(position[2])
-    return pose_msg
-
+DATA_VALIDITY_STREAM = 0.5 # seconds, threshold for (pos,att,vel) messages
+DATA_VALIDITY_STATUS = 2.0 # seconds, threshold for status message
 
 class SpacecraftMPC(Node):
 
@@ -81,10 +69,6 @@ class SpacecraftMPC(Node):
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
         self.sitl = self.declare_parameter('sitl', True).value
-
-        # Get namespace
-        self.namespace = self.declare_parameter('namespace', '').value
-        self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
 
         # Get setpoint from rviz (true/false)
         self.setpoint_from_rviz = self.declare_parameter('setpoint_from_rviz', False).value
@@ -140,70 +124,83 @@ class SpacecraftMPC(Node):
         self.setpoint_position = np.array([1.0, 0.0, 0.0])
         self.setpoint_attitude = np.array([1.0, 0.0, 0.0, 0.0])
 
+        # Set initial timestamps
+        self.vehicle_attitude_timestamp = -np.inf
+        self.vehicle_local_position_timestamp = -np.inf
+        self.vehicle_angular_velocity_timestamp = -np.inf
+        self.vehicle_status_timestamp = -np.inf
+
     def set_publishers_subscribers(self, qos_profile_pub, qos_profile_sub):
+        # Subscribe to both using the same callback
+        # - depending on PX4 version, one or the other will be used, but not both
+        self.status_sub_v1 = self.create_subscription(
+            VehicleStatus,
+            '/fmu/out/vehicle_status_v1',
+            self.vehicle_status_callback,
+            qos_profile_sub)
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            f'{self.namespace_prefix}/fmu/out/vehicle_status',
+            'fmu/out/vehicle_status',
             self.vehicle_status_callback,
             qos_profile_sub)
 
         self.attitude_sub = self.create_subscription(
             VehicleAttitude,
-            f'{self.namespace_prefix}/fmu/out/vehicle_attitude',
+            'fmu/out/vehicle_attitude',
             self.vehicle_attitude_callback,
             qos_profile_sub)
         self.angular_vel_sub = self.create_subscription(
             VehicleAngularVelocity,
-            f'{self.namespace_prefix}/fmu/out/vehicle_angular_velocity',
+            'fmu/out/vehicle_angular_velocity',
             self.vehicle_angular_velocity_callback,
             qos_profile_sub)
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
-            f'{self.namespace_prefix}/fmu/out/vehicle_local_position',
+            'fmu/out/vehicle_local_position',
             self.vehicle_local_position_callback,
             qos_profile_sub)
 
         if self.setpoint_from_rviz:
             self.set_pose_srv = self.create_service(
                 SetPose,
-                f'{self.namespace_prefix}/set_pose',
+                'set_pose',
                 self.add_set_pos_callback
             )
         else:
             self.setpoint_pose_sub = self.create_subscription(
                 PoseStamped,
-                f'{self.namespace_prefix}/px4_mpc/setpoint_pose',
+                'px4_mpc/setpoint_pose',
                 self.get_setpoint_pose_callback,
                 0
             )
 
         self.publisher_offboard_mode = self.create_publisher(
             OffboardControlMode,
-            f'{self.namespace_prefix}/fmu/in/offboard_control_mode',
+            'fmu/in/offboard_control_mode',
             qos_profile_pub)
         self.publisher_rates_setpoint = self.create_publisher(
             VehicleRatesSetpoint,
-            f'{self.namespace_prefix}/fmu/in/vehicle_rates_setpoint',
+            'fmu/in/vehicle_rates_setpoint',
             qos_profile_pub)
         self.publisher_direct_actuator = self.create_publisher(
             ActuatorMotors,
-            f'{self.namespace_prefix}/fmu/in/actuator_motors',
+            'fmu/in/actuator_motors',
             qos_profile_pub)
         self.publisher_thrust_setpoint = self.create_publisher(
             VehicleThrustSetpoint,
-            f'{self.namespace_prefix}/fmu/in/vehicle_thrust_setpoint',
+            'fmu/in/vehicle_thrust_setpoint',
             qos_profile_pub)
         self.publisher_torque_setpoint = self.create_publisher(
             VehicleTorqueSetpoint,
-            f'{self.namespace_prefix}/fmu/in/vehicle_torque_setpoint',
+            'fmu/in/vehicle_torque_setpoint',
             qos_profile_pub)
         self.predicted_path_pub = self.create_publisher(
             Path,
-            f'{self.namespace_prefix}/px4_mpc/predicted_path',
+            'px4_mpc/predicted_path',
             10)
         self.reference_pub = self.create_publisher(
             Marker,
-            f"{self.namespace_prefix}/px4_mpc/reference",
+            'px4_mpc/reference',
             10)
         if self.mode == 'offset_free_wrench':
             self.disturbance_rotation_pub = self.create_publisher(
@@ -234,23 +231,26 @@ class SpacecraftMPC(Node):
         return
 
     def vehicle_attitude_callback(self, msg):
-        # TODO: handle NED->ENU transformation
-        self.vehicle_attitude[0] = msg.q[0]
-        self.vehicle_attitude[1] = msg.q[1]
-        self.vehicle_attitude[2] = -msg.q[2]
-        self.vehicle_attitude[3] = -msg.q[3]
+        # NED-> ENU transformation
+        # Receives quaternion in NED frame as (qw, qx, qy, qz)
+        self.vehicle_attitude_timestamp = Clock().now().nanoseconds / 1e9
+        q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
+        q_enu /= np.linalg.norm(q_enu)
+        self.vehicle_attitude = q_enu.astype(float)
 
     def vehicle_local_position_callback(self, msg):
-        # TODO: handle NED->ENU transformation
-        self.vehicle_local_position[0] = msg.x
-        self.vehicle_local_position[1] = -msg.y
+        # NED-> ENU transformation
+        self.vehicle_local_position_timestamp = Clock().now().nanoseconds / 1e9
+        self.vehicle_local_position[0] = msg.y
+        self.vehicle_local_position[1] = msg.x
         self.vehicle_local_position[2] = -msg.z
-        self.vehicle_local_velocity[0] = msg.vx
-        self.vehicle_local_velocity[1] = -msg.vy
+        self.vehicle_local_velocity[0] = msg.vy
+        self.vehicle_local_velocity[1] = msg.vx
         self.vehicle_local_velocity[2] = -msg.vz
 
     def vehicle_angular_velocity_callback(self, msg):
-        # TODO: handle NED->ENU transformation
+        # NED-> ENU transformation
+        self.vehicle_angular_velocity_timestamp = Clock().now().nanoseconds / 1e9
         self.vehicle_angular_velocity[0] = msg.xyz[0]
         self.vehicle_angular_velocity[1] = -msg.xyz[1]
         self.vehicle_angular_velocity[2] = -msg.xyz[2]
@@ -258,6 +258,7 @@ class SpacecraftMPC(Node):
     def vehicle_status_callback(self, msg):
         # print("NAV_STATUS: ", msg.nav_state)
         # print("  - offboard status: ", VehicleStatus.NAVIGATION_STATE_OFFBOARD)
+        self.vehicle_status_timestamp = Clock().now().nanoseconds / 1e9
         self.nav_state = msg.nav_state
 
     def publish_reference(self, pub, reference):
@@ -323,30 +324,16 @@ class SpacecraftMPC(Node):
         actuator_outputs_msg = ActuatorMotors()
         actuator_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        # NOTE:
-        # Output is float[16]
-        # u1 needs to be divided between 1 and 2
-        # u2 needs to be divided between 3 and 4
-        # u3 needs to be divided between 5 and 6
-        # u4 needs to be divided between 7 and 8
-        # positve component goes for the first, the negative for the second
-        thrust = u_pred[0, :] / self.model.max_thrust  # normalizes w.r.t. max thrust
-        # print("Thrust rates: ", thrust[0:4])
+        # Normalize thrust values w.r.t. max thrust
+        thrust = u_pred[0, :] / self.model.max_thrust
 
-        thrust_command = np.zeros(12, dtype=np.float32)
-        thrust_command[0] = 0.0 if thrust[0] <= 0.0 else thrust[0]
-        thrust_command[1] = 0.0 if thrust[0] >= 0.0 else -thrust[0]
+        # Generate actuator outputs dynamically
+        thrust_command = []
+        for t in thrust:
+            thrust_command.extend([max(t, 0.0), max(-t, 0.0)])
+        thrust_command = np.clip(np.array(thrust_command, dtype=np.float32), 0.0, 1.0)
 
-        thrust_command[2] = 0.0 if thrust[1] <= 0.0 else thrust[1]
-        thrust_command[3] = 0.0 if thrust[1] >= 0.0 else -thrust[1]
-
-        thrust_command[4] = 0.0 if thrust[2] <= 0.0 else thrust[2]
-        thrust_command[5] = 0.0 if thrust[2] >= 0.0 else -thrust[2]
-
-        thrust_command[6] = 0.0 if thrust[3] <= 0.0 else thrust[3]
-        thrust_command[7] = 0.0 if thrust[3] >= 0.0 else -thrust[3]
-
-        actuator_outputs_msg.control = thrust_command.flatten()
+        actuator_outputs_msg.control[:len(thrust_command)] = thrust_command
         self.publisher_direct_actuator.publish(actuator_outputs_msg)
 
     def publish_disturbance_estimate(self, d_hat):
@@ -397,11 +384,31 @@ class SpacecraftMPC(Node):
         self.sitl_pose_pub.publish(pose_msg)
         return
 
+    def check_data_validity(self):
+        current_time = Clock().now().nanoseconds / 1e9
+
+        # Check if the data is valid based on the timestamps
+        if (current_time - self.vehicle_attitude_timestamp > DATA_VALIDITY_STREAM or
+            current_time - self.vehicle_local_position_timestamp > DATA_VALIDITY_STREAM or
+            current_time - self.vehicle_angular_velocity_timestamp > DATA_VALIDITY_STREAM):
+            self.get_logger().warn("Vehicle attitude, position, or angular velocity data is too old. Skipping offboard control...")
+            return False
+
+        if (current_time - self.vehicle_status_timestamp > DATA_VALIDITY_STATUS):
+            self.get_logger().warn("Vehicle status data is too old. Skipping offboard control...")
+            return False
+
+        return True
+
     def cmdloop_callback(self):
 
         # Publish odometry for SITL
         if self.sitl:
             self.publish_sitl_odometry()
+
+        # Check data validity
+        if not self.check_data_validity():
+            return
 
         # Publish offboard control modes
         offboard_msg = OffboardControlMode()
@@ -493,7 +500,7 @@ class SpacecraftMPC(Node):
         for predicted_state in x_pred:
             idx = idx + 1
             # Publish time history of the vehicle path
-            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
+            predicted_pose_msg = self.vector2PoseMsg('map', predicted_state[0:3], self.setpoint_attitude)
             predicted_path_msg.header = predicted_pose_msg.header
             predicted_path_msg.poses.append(predicted_pose_msg)
         self.predicted_path_pub.publish(predicted_path_msg)
@@ -525,6 +532,19 @@ class SpacecraftMPC(Node):
         self.setpoint_attitude[1] = msg.pose.orientation.x
         self.setpoint_attitude[2] = msg.pose.orientation.y
         self.setpoint_attitude[3] = msg.pose.orientation.z
+
+    def vector2PoseMsg(self, frame_id, position, attitude):
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.frame_id = frame_id
+        pose_msg.pose.orientation.w = attitude[0]
+        pose_msg.pose.orientation.x = attitude[1]
+        pose_msg.pose.orientation.y = attitude[2]
+        pose_msg.pose.orientation.z = attitude[3]
+        pose_msg.pose.position.x = float(position[0])
+        pose_msg.pose.position.y = float(position[1])
+        pose_msg.pose.position.z = float(position[2])
+        return pose_msg
 
 
 def main(args=None):

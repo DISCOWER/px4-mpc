@@ -151,12 +151,7 @@ class MinimalClientAsync(Node):
     def __init__(self):
         super().__init__('minimal_client_async')
 
-        # Declare and retrieve the namespace parameter
-        self.declare_parameter('namespace', '')  # Default to empty namespace
-        self.namespace = self.get_parameter('namespace').value
-        self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
-
-        self.cli = self.create_client(SetPose, f'{self.namespace_prefix}/set_pose')
+        self.cli = self.create_client(SetPose, 'set_pose')
         while not self.cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         self.req = SetPose.Request()
@@ -192,7 +187,7 @@ class ProcessFeedback():
         # self.menu_handler.insert('Reset Position', parent=sub_menu_handle, callback=process_feedback.processFeedback)
         # self.menu_handler.insert('Reset Orientation', parent=sub_menu_handle, callback=process_feedback.processFeedback)
 
-        position = Point(x=0.0, y=3.0, z=3.0)
+        position = Point(x=1.0, y=1.0, z=0.0)
         make6DofMarker(self.server, self.menu_handler, self.processFeedback, True, InteractiveMarkerControl.NONE, position, True)
         self.server.applyChanges()
 

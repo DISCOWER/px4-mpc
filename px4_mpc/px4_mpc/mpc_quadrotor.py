@@ -56,53 +56,78 @@ from px4_msgs.msg import VehicleRatesSetpoint
 
 from mpc_msgs.srv import SetPose
 
-def vector2PoseMsg(frame_id, position, attitude):
-    pose_msg = PoseStamped()
-    # msg.header.stamp = Clock().now().nanoseconds / 1000
-    pose_msg.header.frame_id=frame_id
-    pose_msg.pose.orientation.w = attitude[0]
-    pose_msg.pose.orientation.x = attitude[1]
-    pose_msg.pose.orientation.y = attitude[2]
-    pose_msg.pose.orientation.z = attitude[3]
-    pose_msg.pose.position.x = float(position[0])
-    pose_msg.pose.position.y = float(position[1])
-    pose_msg.pose.position.z = float(position[2])
-    return pose_msg
-
 class QuadrotorMPC(Node):
 
     def __init__(self):
         super().__init__('minimal_publisher')
-        qos_profile = QoSProfile(
-            reliability=QoSReliabilityPolicy.RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
-            durability=QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
-            history=QoSHistoryPolicy.RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+
+        # Get namespace
+        self.namespace = self.declare_parameter('namespace', '').value
+        self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
+
+        # Get setpoint from rviz (true/false)
+        self.setpoint_from_rviz = self.declare_parameter('setpoint_from_rviz', False).value
+
+        # QoS profiles
+        qos_profile_pub = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+        qos_profile_sub = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
 
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            '/fmu/out/vehicle_status',
+            'fmu/out/vehicle_status',
             self.vehicle_status_callback,
-            qos_profile)
+            qos_profile_sub)
+        self.status_sub = self.create_subscription(
+            VehicleStatus,
+            'fmu/out/vehicle_status_v1',
+            self.vehicle_status_callback,
+            qos_profile_sub)
 
         self.attitude_sub = self.create_subscription(
             VehicleAttitude,
-            '/fmu/out/vehicle_attitude',
+            'fmu/out/vehicle_attitude',
             self.vehicle_attitude_callback,
-            qos_profile)
+            qos_profile_sub)
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
-            '/fmu/out/vehicle_local_position',
+            'fmu/out/vehicle_local_position',
             self.vehicle_local_position_callback,
-            qos_profile)
+            qos_profile_sub)
+        self.local_position_sub = self.create_subscription(
+            VehicleLocalPosition,
+            'fmu/out/vehicle_local_position_v1',
+            self.vehicle_local_position_callback,
+            qos_profile_sub)
 
-        self.set_pose_srv = self.create_service(SetPose, '/set_pose', self.add_set_pos_callback)
+        if self.setpoint_from_rviz:
+            self.set_pose_srv = self.create_service(
+                SetPose,
+                'set_pose',
+                self.add_set_pos_callback
+            )
+        else:
+            self.setpoint_pose_sub = self.create_subscription(
+                PoseStamped,
+                'px4_mpc/setpoint_pose',
+                self.get_setpoint_pose_callback,
+                0
+            )
 
-        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
-        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, '/fmu/in/vehicle_rates_setpoint', qos_profile)
-        self.predicted_path_pub = self.create_publisher(Path, '/px4_mpc/predicted_path', 10)
-        self.reference_pub = self.create_publisher(Marker, "/px4_mpc/reference", 10
+        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, 'fmu/in/offboard_control_mode', qos_profile_pub)
+        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, 'fmu/in/vehicle_rates_setpoint', qos_profile_pub)
+        self.predicted_path_pub = self.create_publisher(Path, 'px4_mpc/predicted_path', 10)
+        self.reference_pub = self.create_publisher(Marker, 'px4_mpc/reference', 10
         )
 
         timer_period = 0.02  # seconds
@@ -130,26 +155,26 @@ class QuadrotorMPC(Node):
         self.setpoint_position = np.array([0.0, 0.0, 3.0])
 
     def vehicle_attitude_callback(self, msg):
-        # TODO: handle NED->ENU transformation 
-        self.vehicle_attitude[0] = msg.q[0]
-        self.vehicle_attitude[1] = msg.q[1]
-        self.vehicle_attitude[2] = -msg.q[2]
-        self.vehicle_attitude[3] = -msg.q[3]
+        # NED-> ENU transformation
+        # Receives quaternion in NED frame as (qw, qx, qy, qz)
+        q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
+        q_enu /= np.linalg.norm(q_enu)
+        self.vehicle_attitude = q_enu.astype(float)
 
     def vehicle_local_position_callback(self, msg):
-        # TODO: handle NED->ENU transformation 
-        self.vehicle_local_position[0] = msg.x
-        self.vehicle_local_position[1] = -msg.y
+        # NED-> ENU transformation
+        self.vehicle_local_position[0] = msg.y
+        self.vehicle_local_position[1] = msg.x
         self.vehicle_local_position[2] = -msg.z
-        self.vehicle_local_velocity[0] = msg.vx
-        self.vehicle_local_velocity[1] = -msg.vy
+        self.vehicle_local_velocity[0] = msg.vy
+        self.vehicle_local_velocity[1] = msg.vx
         self.vehicle_local_velocity[2] = -msg.vz
 
     def vehicle_status_callback(self, msg):
         # print("NAV_STATUS: ", msg.nav_state)
         # print("  - offboard status: ", VehicleStatus.NAVIGATION_STATE_OFFBOARD)
         self.nav_state = msg.nav_state
-    
+
     def publish_reference(self, pub, reference):
         msg = Marker()
         msg.action = Marker.ADD
@@ -189,7 +214,7 @@ class QuadrotorMPC(Node):
         error_position = self.vehicle_local_position - self.setpoint_position
 
         x0 = np.array([error_position[0], error_position[1], error_position[2],
-         self.vehicle_local_velocity[0], self.vehicle_local_velocity[1], self.vehicle_local_velocity[2], 
+         self.vehicle_local_velocity[0], self.vehicle_local_velocity[1], self.vehicle_local_velocity[2],
          self.vehicle_attitude[0], self.vehicle_attitude[1], self.vehicle_attitude[2], self.vehicle_attitude[3]]).reshape(10, 1)
 
         u_pred, x_pred = self.mpc.solve(x0)
@@ -199,7 +224,7 @@ class QuadrotorMPC(Node):
         for predicted_state in x_pred:
             idx = idx + 1
                 # Publish time history of the vehicle path
-            predicted_pose_msg = vector2PoseMsg('map', predicted_state[0:3] + self.setpoint_position, np.array([1.0, 0.0, 0.0, 0.0]))
+            predicted_pose_msg = self.vector2PoseMsg('map', predicted_state[0:3] + self.setpoint_position, np.array([1.0, 0.0, 0.0, 0.0]))
             predicted_path_msg.header = predicted_pose_msg.header
             predicted_path_msg.poses.append(predicted_pose_msg)
         self.predicted_path_pub.publish(predicted_path_msg)
@@ -225,6 +250,19 @@ class QuadrotorMPC(Node):
         self.setpoint_position[2] = request.pose.position.z
 
         return response
+
+    def vector2PoseMsg(self, frame_id, position, attitude):
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.frame_id = frame_id
+        pose_msg.pose.orientation.w = attitude[0]
+        pose_msg.pose.orientation.x = attitude[1]
+        pose_msg.pose.orientation.y = attitude[2]
+        pose_msg.pose.orientation.z = attitude[3]
+        pose_msg.pose.position.x = float(position[0])
+        pose_msg.pose.position.y = float(position[1])
+        pose_msg.pose.position.z = float(position[2])
+        return pose_msg
 
 def main(args=None):
     rclpy.init(args=args)
