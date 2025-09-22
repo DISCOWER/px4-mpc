@@ -68,7 +68,7 @@ class SpacecraftMPC(Node):
 
         # Get mode; rate, wrench, direct_allocation
         self.mode = self.declare_parameter('mode', 'wrench').value
-        self.sitl = self.declare_parameter('sitl', True).value
+        self.sitl = self.declare_parameter('sitl', False).value
 
         # Get setpoint from rviz (true/false)
         self.setpoint_from_rviz = self.declare_parameter('setpoint_from_rviz', False).value
@@ -110,6 +110,10 @@ class SpacecraftMPC(Node):
         elif self.mode == 'offset_free_wrench':
             from px4_mpc.controllers.spacecraft_offset_free_wrench_mpc import SpacecraftOffsetFreeWrenchMPC
             self.mpc = SpacecraftOffsetFreeWrenchMPC()
+        elif self.mode == 'lqr_wrench':
+            from px4_mpc.models.spacecraft_wrench_6dof_model import SpacecraftWrench6DoFModel
+            from px4_mpc.controllers.spacecraft_wrench_lqr import SpacecraftWrenchLQR
+            self.mpc = SpacecraftWrenchLQR(model=SpacecraftWrench6DoFModel())
         elif self.mode == 'direct_allocation':
             from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
             from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
@@ -157,6 +161,11 @@ class SpacecraftMPC(Node):
         self.local_position_sub = self.create_subscription(
             VehicleLocalPosition,
             'fmu/out/vehicle_local_position',
+            self.vehicle_local_position_callback,
+            qos_profile_sub)
+        self.local_position_sub = self.create_subscription(
+            VehicleLocalPosition,
+            'fmu/out/vehicle_local_position_v1',
             self.vehicle_local_position_callback,
             qos_profile_sub)
 
@@ -313,7 +322,7 @@ class SpacecraftMPC(Node):
         thrust_outputs_msg.xyz = [u_pred[0, 0] - eps_x, -u_pred[0, 1] - eps_y, -0.0]
         if self.mode == 'wrench':
             torque_outputs_msg.xyz = [0.0, 0.0, -u_pred[0, 2] - eps_tau]
-        elif self.mode == 'offset_free_wrench':
+        elif self.mode == 'offset_free_wrench' or self.mode == 'lqr_wrench':
             # offset-free is already generalized for 6dof
             torque_outputs_msg.xyz = [0.0, 0.0, -u_pred[0, 5] - eps_tau]
 
@@ -423,7 +432,7 @@ class SpacecraftMPC(Node):
             offboard_msg.body_rate = True
         elif self.mode == 'direct_allocation':
             offboard_msg.direct_actuator = True
-        elif self.mode == 'wrench' or self.mode == 'offset_free_wrench':
+        elif self.mode == 'wrench' or self.mode == 'offset_free_wrench' or self.mode == 'lqr_wrench':
             offboard_msg.thrust_and_torque = True
         self.publisher_offboard_mode.publish(offboard_msg)
 
@@ -464,6 +473,23 @@ class SpacecraftMPC(Node):
                                   np.zeros(3),                  # angular velocity
                                   np.zeros(3)), axis=0)         # inputs reference (F, torque)
             ref = np.repeat(ref.reshape((-1, 1)), self.mpc.N + 1, axis=1)
+        elif self.mode == 'lqr_wrench':
+            x0 = np.array([self.vehicle_local_position[0],
+                           self.vehicle_local_position[1],
+                           self.vehicle_local_position[2],
+                           self.vehicle_local_velocity[0],
+                           self.vehicle_local_velocity[1],
+                           self.vehicle_local_velocity[2],
+                           self.vehicle_attitude[1],
+                           self.vehicle_attitude[2],
+                           self.vehicle_attitude[3],
+                           self.vehicle_angular_velocity[0],
+                           self.vehicle_angular_velocity[1],
+                           self.vehicle_angular_velocity[2]]).reshape(12, 1)
+            ref = np.concatenate((self.setpoint_position,       # position
+                                  np.zeros(3),                  # velocity
+                                  self.setpoint_attitude[1:],       # attitude
+                                  np.zeros(3)), axis=0)         # angular velocity
         elif self.mode == 'direct_allocation':
             x0 = np.array([self.vehicle_local_position[0],
                            self.vehicle_local_position[1],
@@ -488,7 +514,7 @@ class SpacecraftMPC(Node):
             raise ValueError(f'Invalid mode: {self.mode}')
 
         # Solve MPC
-        u_pred, x_pred = self.mpc.solve(x0, ref=ref)
+        u_pred, x_pred = self.mpc.solve(x0, ref=ref, verbose=True)
 
         if self.mode == 'offset_free_wrench':
             # Publish disturbance
@@ -511,7 +537,7 @@ class SpacecraftMPC(Node):
                 self.publish_rate_setpoint(u_pred)
             elif self.mode == 'direct_allocation' or self.mode == 'direct_allocation_trajectory':
                 self.publish_direct_actuator_setpoint(u_pred)
-            elif self.mode == 'wrench' or self.mode == 'offset_free_wrench':
+            elif self.mode == 'wrench' or self.mode == 'offset_free_wrench' or self.mode == 'lqr_wrench':
                 self.publish_wrench_setpoint(u_pred)
 
     def add_set_pos_callback(self, request, response):

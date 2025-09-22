@@ -67,7 +67,6 @@ def generate_launch_description():
     mode = LaunchConfiguration('mode')
     namespace = LaunchConfiguration('namespace')
     setpoint_from_rviz = LaunchConfiguration('setpoint_from_rviz')
-    sitl = LaunchConfiguration('sitl', default='true')
 
     return LaunchDescription([
         mode_arg,
