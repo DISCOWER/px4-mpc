@@ -35,11 +35,12 @@ from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
 import numpy as np
 import casadi as cs
 import os
+from px4_mpc.utils.rotations import quat_mult_cs
 
 class SpacecraftDirectAllocationMPC():
     def __init__(self, model):
         self.model = model
-        self.Tf = 5.0
+        self.Tf = 10.0
         self.N = 49
 
         self.x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -73,11 +74,11 @@ class SpacecraftDirectAllocationMPC():
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = [5e1, 5e1, 5e1,
-                 1e1, 1e1, 1e1,
-                 8e3,
-                 1e1, 1e1, 1e1]
-        R_mat = [1e1] * 4
+        Q_mat = [1e0, 1e0, 1e0,
+                 2e0, 2e0, 2e0,
+                 1e2, 5e1, 5e1, 5e1,
+                 5e0, 5e0, 5e0]
+        R_mat = [5e-1] * 4
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -93,9 +94,15 @@ class SpacecraftDirectAllocationMPC():
         x = ocp.model.x
         u = ocp.model.u
 
+        q = x_ref[6:10]
+        q_ref = x[6:10]
+        q = q / cs.norm_2(q)
+        q_error = quat_mult_cs(q, cs.vertcat(q_ref[0], -q_ref[1], -q_ref[2], -q_ref[3]))
+        q_error = q_error * cs.sign(q_error[0])
+
         x_error = x[0:3] - x_ref[0:3]
         x_error = cs.vertcat(x_error, x[3:6] - x_ref[3:6])
-        x_error = cs.vertcat(x_error, 1 - (x[6:10].T @ x_ref[6:10])**2)
+        x_error = cs.vertcat(x_error, q_error)
         x_error = cs.vertcat(x_error, x[10:13] - x_ref[10:13])
         u_error = u - u_ref
 
@@ -108,12 +115,14 @@ class SpacecraftDirectAllocationMPC():
 
         ocp.model.cost_y_expr_0 = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
-        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr_e = x_error
 
         ocp.cost.yref_0 = np.zeros(ocp.model.cost_y_expr_0.shape[0])
+        ocp.cost.yref_0[6] = 1
         ocp.cost.yref = np.zeros(ocp.model.cost_y_expr.shape[0])
+        ocp.cost.yref[6] = 1
         ocp.cost.yref_e = np.zeros(ocp.model.cost_y_expr_e.shape[0])
+        ocp.cost.yref_e[6] = 1
 
         # Initialize parameters
         p_0 = np.concatenate((x0, np.zeros(nu)))  # First step is error 0 since x_ref = x0
@@ -125,14 +134,14 @@ class SpacecraftDirectAllocationMPC():
         ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
+        ocp.constraints.lbx = np.array([0.3, -1.28, -5, -0.5, -0.5, -0.5, -1, -1, -1])
+        ocp.constraints.ubx = np.array([+3.8, +1.44, +5, +0.5, +0.5, +0.5, +1, +1, +1])
         ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
 
         # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+        ocp.constraints.lbx_e = np.array([0.3, -1.28, -5, -0.5, -0.5, -0.5, -1, -1, -1])
+        ocp.constraints.ubx_e = np.array([+3.8, +1.44, +5, +0.5, +0.5, +0.5, +1, +1, +1])
+        ocp.constraints.idxbx_e = ocp.constraints.idxbx
 
         # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
         # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.

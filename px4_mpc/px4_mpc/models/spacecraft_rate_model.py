@@ -33,6 +33,7 @@
 
 from acados_template import AcadosModel
 import casadi as cs
+import px4_mpc.utils.rotations as R
 
 class SpacecraftRateModel():
     def __init__(self):
@@ -41,30 +42,9 @@ class SpacecraftRateModel():
         # constants
         self.mass = 17.8
         self.max_thrust = 2 * 1.5
-        self.max_rate = 4 * 0.12 * 1.5
+        self.max_rate = 1
 
     def get_acados_model(self) -> AcadosModel:
-        def skew_symmetric(v):
-            return cs.vertcat(cs.horzcat(0, -v[0], -v[1], -v[2]),
-                cs.horzcat(v[0], 0, v[2], -v[1]),
-                cs.horzcat(v[1], -v[2], 0, v[0]),
-                cs.horzcat(v[2], v[1], -v[0], 0))
-
-        def q_to_rot_mat(q):
-            qw, qx, qy, qz = q[0], q[1], q[2], q[3]
-
-            rot_mat = cs.vertcat(
-                cs.horzcat(1 - 2 * (qy ** 2 + qz ** 2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)),
-                cs.horzcat(2 * (qx * qy + qw * qz), 1 - 2 * (qx ** 2 + qz ** 2), 2 * (qy * qz - qw * qx)),
-                cs.horzcat(2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx ** 2 + qy ** 2)))
-
-            return rot_mat
-
-        def v_dot_q(v, q):
-            rot_mat = q_to_rot_mat(q)
-
-            return cs.mtimes(rot_mat, v)
-
         model = AcadosModel()
 
         # set up states & controls
@@ -85,12 +65,13 @@ class SpacecraftRateModel():
 
         xdot = cs.vertcat(p_dot, v_dot, q_dot)
 
-        a_thrust = v_dot_q(F, q)/self.mass
+        q_normalized = q / cs.norm_2(q)
+        a_thrust = R.v_dot_q_cs(F, q_normalized)/self.mass
 
         # dynamics
         f_expl = cs.vertcat(v,
                         a_thrust,
-                        1 / 2 * cs.mtimes(skew_symmetric(w), q)
+                        1 / 2 * cs.mtimes(R.skew_symmetric_cs(w), q_normalized)
                         )
 
         f_impl = xdot - f_expl

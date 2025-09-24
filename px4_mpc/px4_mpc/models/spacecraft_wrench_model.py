@@ -34,6 +34,7 @@
 from acados_template import AcadosModel
 import casadi as cs
 import numpy as np
+import px4_mpc.utils.rotations as R
 
 class SpacecraftWrenchModel():
     def __init__(self):
@@ -42,31 +43,10 @@ class SpacecraftWrenchModel():
         # constants
         self.mass = 17.8
         self.inertia = np.diag([0.315]*3)
-        self.max_thrust = 2 * 1.5
-        self.max_torque = 4 * 0.12 * 1.5
+        self.max_thrust = 2 * 1.5 * 2/3
+        self.max_torque = 4 * 0.12 * 1.5 * 1/3
 
     def get_acados_model(self) -> AcadosModel:
-        def skew_symmetric(v):
-            return cs.vertcat(cs.horzcat(0, -v[0], -v[1], -v[2]),
-                cs.horzcat(v[0], 0, v[2], -v[1]),
-                cs.horzcat(v[1], -v[2], 0, v[0]),
-                cs.horzcat(v[2], v[1], -v[0], 0))
-
-        def q_to_rot_mat(q):
-            qw, qx, qy, qz = q[0], q[1], q[2], q[3]
-
-            rot_mat = cs.vertcat(
-                cs.horzcat(1 - 2 * (qy ** 2 + qz ** 2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)),
-                cs.horzcat(2 * (qx * qy + qw * qz), 1 - 2 * (qx ** 2 + qz ** 2), 2 * (qy * qz - qw * qx)),
-                cs.horzcat(2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx ** 2 + qy ** 2)))
-
-            return rot_mat
-
-        def v_dot_q(v, q):
-            rot_mat = q_to_rot_mat(q)
-
-            return cs.mtimes(rot_mat, v)
-
         model = AcadosModel()
 
         # set up states & controls
@@ -76,16 +56,10 @@ class SpacecraftWrenchModel():
         w      = cs.MX.sym('w', 3)
 
         x = cs.vertcat(p, v, q, w)
-        u = cs.MX.sym('u', 3)
+        u = cs.MX.sym('u', 6)
 
-        D_mat = cs.MX.zeros(3, 3)
-        D_mat[0, 0] = 1
-        D_mat[1, 1] = 1
-        D_mat[2, 2] = 1
-        F_2d = cs.mtimes(D_mat, u)
-
-        F = cs.vertcat(F_2d[0,0], F_2d[1,0], 0.0)
-        tau = cs.vertcat(0.0, 0.0, F_2d[2,0])
+        F = u[0:3]
+        tau = u[3:6]
 
         # xdot
         p_dot      = cs.MX.sym('p_dot', 3)
@@ -95,12 +69,13 @@ class SpacecraftWrenchModel():
 
         xdot = cs.vertcat(p_dot, v_dot, q_dot, w_dot)
 
-        a_thrust = v_dot_q(F, q)/self.mass
+        q_normalized = q / cs.norm_2(q)
+        a_thrust = R.v_dot_q_cs(F, q_normalized)/self.mass
 
         # dynamics
         f_expl = cs.vertcat(v,
                             a_thrust,
-                            1 / 2 * cs.mtimes(skew_symmetric(w), q),
+                            1 / 2 * cs.mtimes(R.skew_symmetric_cs(w), q_normalized),
                             np.linalg.inv(self.inertia) @ (tau - cs.cross(w, self.inertia @ w))
                             )
 

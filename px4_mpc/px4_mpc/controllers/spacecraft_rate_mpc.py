@@ -35,12 +35,13 @@ from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
 import numpy as np
 import casadi as cs
 import os
+from px4_mpc.utils.rotations import quat_mult_cs
 
 class SpacecraftRateMPC():
     def __init__(self, model):
         self.model = model
 
-        self.Tf = 5.0
+        self.Tf = 10.0
         self.N = 49
 
         self.x0 = np.array([0.01, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
@@ -76,8 +77,11 @@ class SpacecraftRateMPC():
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = [8e2, 8e2, 8e2, 7e1, 7e1, 7e1, 8e4]
-        R_mat = [2e1, 2e1, 2e1, 1e2, 1e2, 1e2]
+        Q_mat = [1e0, 1e0, 1e0,
+                 2e0, 2e0, 2e0,
+                 1e2, 5e1, 5e1, 5e1]
+        R_mat = [5e-1, 5e-1, 5e-1,
+                 2e1, 2e1, 2e1]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -88,14 +92,20 @@ class SpacecraftRateMPC():
         u_ref = cs.MX.sym('u_ref', (6, 1))
 
         # Calculate errors
-        # x : p,v,q,w               , R9 x SO(3)
+        # x : p,v,q                 , R6 x SO(3)
         # u : Fx,Fy,Fz,wx,wy,wz     , R6
         x = ocp.model.x
         u = ocp.model.u
 
+        q = x_ref[6:10]
+        q_ref = x[6:10]
+        q = q / cs.norm_2(q)
+        q_error = quat_mult_cs(q, cs.vertcat(q_ref[0], -q_ref[1], -q_ref[2], -q_ref[3]))
+        q_error = q_error * cs.sign(q_error[0])
+
         x_error = x[0:3] - x_ref[0:3]
         x_error = cs.vertcat(x_error, x[3:6] - x_ref[3:6])
-        x_error = cs.vertcat(x_error, 1 - (x[6:10].T @ x_ref[6:10])**2)
+        x_error = cs.vertcat(x_error, q_error)
         u_error = u - u_ref                                            # Control error
 
         ocp.model.p = cs.vertcat(x_ref, u_ref)
@@ -107,31 +117,33 @@ class SpacecraftRateMPC():
 
         ocp.model.cost_y_expr_0 = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
-        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr_e = x_error
 
         ocp.cost.yref_0 = np.zeros(ocp.model.cost_y_expr_0.shape[0])
+        ocp.cost.yref_0[6] = 1
         ocp.cost.yref = np.zeros(ocp.model.cost_y_expr.shape[0])
+        ocp.cost.yref[6] = 1
         ocp.cost.yref_e = np.zeros(ocp.model.cost_y_expr_e.shape[0])
+        ocp.cost.yref_e[6] = 1
 
         # Initialize parameters
         p_0 = np.concatenate((x0, np.zeros(nu)))  # First step is error 0 since x_ref = x0
         ocp.parameter_values = p_0
 
         # set constraints on U
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -wmax, -wmax, -wmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, wmax, wmax, wmax])
+        ocp.constraints.lbu = np.array([-Fmax, -Fmax, 0, 0, 0, -wmax])
+        ocp.constraints.ubu = np.array([+Fmax, +Fmax, 0, 0, 0, wmax])
         ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1])
+        ocp.constraints.lbx = np.array([0.3, -1.28, -5, -0.5, -0.5, -0.5])
+        ocp.constraints.ubx = np.array([+3.8, +1.44, +5, +0.5, +0.5, +0.5])
         ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5])
+        ocp.constraints.lbx_e = np.array([0.3, -1.28, -5, -0.5, -0.5, -0.5])
+        ocp.constraints.ubx_e = np.array([+3.8, +1.44, +5, +0.5, +0.5, +0.5])
+        ocp.constraints.idxbx_e = ocp.constraints.idxbx
 
         # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
         # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.

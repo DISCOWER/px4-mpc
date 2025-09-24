@@ -58,9 +58,9 @@ def makeBox(msg):
     marker = Marker()
 
     marker.type = Marker.SPHERE
-    marker.scale.x = msg.scale * 0.45
-    marker.scale.y = msg.scale * 0.45
-    marker.scale.z = msg.scale * 0.45
+    marker.scale.x = msg.scale * 0.4
+    marker.scale.y = msg.scale * 0.4
+    marker.scale.z = msg.scale * 0.4
     marker.color.r = 1.0
     marker.color.g = 1.0
     marker.color.b = 0.0
@@ -93,7 +93,6 @@ def make6DofMarker(server, menu_handler, process_feedback, fixed, interaction_mo
     int_marker.scale = 1.0
 
     int_marker.name = 'simple_6dof'
-    int_marker.description = 'Simple 6-DOF Control'
 
     # insert a box
     makeBoxControl(int_marker)
@@ -101,7 +100,6 @@ def make6DofMarker(server, menu_handler, process_feedback, fixed, interaction_mo
 
     if fixed:
         int_marker.name += '_fixed'
-        int_marker.description += '\n(fixed orientation)'
 
     if interaction_mode != InteractiveMarkerControl.NONE:
         control_modes_dict = {
@@ -110,10 +108,6 @@ def make6DofMarker(server, menu_handler, process_feedback, fixed, interaction_mo
             InteractiveMarkerControl.MOVE_ROTATE_3D: 'MOVE_ROTATE_3D'
         }
         int_marker.name += '_' + control_modes_dict[interaction_mode]
-        int_marker.description = '3D Control'
-        if show_6dof:
-            int_marker.description += ' + 6-DOF controls'
-        int_marker.description += '\n' + control_modes_dict[interaction_mode]
 
     if show_6dof:
         for axis, name in [(1.0, 'move_x'), (2.0, 'move_y'), (3.0, 'move_z')]:

@@ -156,6 +156,11 @@ class SpacecraftMPC(Node):
             'fmu/out/vehicle_local_position',
             self.vehicle_local_position_callback,
             qos_profile_sub)
+        self.local_position_sub = self.create_subscription(
+            VehicleLocalPosition,
+            'fmu/out/vehicle_local_position_v1',
+            self.vehicle_local_position_callback,
+            qos_profile_sub)
 
         if self.setpoint_from_rviz:
             self.set_pose_srv = self.create_service(
@@ -246,9 +251,9 @@ class SpacecraftMPC(Node):
         msg.ns = "arrow"
         msg.id = 1
         msg.type = Marker.SPHERE
-        msg.scale.x = 0.5
-        msg.scale.y = 0.5
-        msg.scale.z = 0.5
+        msg.scale.x = 0.3
+        msg.scale.y = 0.3
+        msg.scale.z = 0.3
         msg.color.r = 1.0
         msg.color.g = 0.0
         msg.color.b = 0.0
@@ -287,9 +292,8 @@ class SpacecraftMPC(Node):
         # The PX4 uses normalized wrench input. Scaling with respect to the maximum force and torque.
         F_scaling = 1/(2 * 1.5)
         T_scaling = 1/(4 * 0.12 * 1.5)
-        u_pred[0, 0] *= F_scaling
-        u_pred[0, 1] *= F_scaling
-        u_pred[0, 2] *= T_scaling
+        u_pred[0, :3] *= F_scaling
+        u_pred[0, 3:6] *= T_scaling
 
         thrust_outputs_msg = VehicleThrustSetpoint()
         thrust_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
@@ -297,8 +301,9 @@ class SpacecraftMPC(Node):
         torque_outputs_msg = VehicleTorqueSetpoint()
         torque_outputs_msg.timestamp = int(Clock().now().nanoseconds / 1000)
 
-        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -0.0]
-        torque_outputs_msg.xyz = [0.0, -0.0, -u_pred[0, 2]]
+        # FLU -> FRD transformation
+        thrust_outputs_msg.xyz = [u_pred[0, 0], -u_pred[0, 1], -u_pred[0, 2]]
+        torque_outputs_msg.xyz = [u_pred[0, 3], -u_pred[0, 4], -u_pred[0, 5]]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
         self.publisher_torque_setpoint.publish(torque_outputs_msg)
@@ -418,7 +423,7 @@ class SpacecraftMPC(Node):
                                   np.zeros(3),                  # velocity
                                   self.setpoint_attitude,       # attitude
                                   np.zeros(3),                  # angular velocity
-                                  np.zeros(3)), axis=0)         # inputs reference (F, torque)
+                                  np.zeros(6)), axis=0)         # inputs reference (F, torque)
             ref = np.repeat(ref.reshape((-1, 1)), self.mpc.N + 1, axis=1)
         elif self.mode == 'direct_allocation':
             x0 = np.array([self.vehicle_local_position[0],
