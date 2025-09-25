@@ -214,12 +214,12 @@ class SpacecraftMPC(Node):
         if self.mode == 'offset_free_wrench':
             self.disturbance_rotation_pub = self.create_publisher(
                 Vector3Stamped,
-                f'{self.namespace_prefix}/px4_mpc/translation_d_hat',
+                'px4_mpc/translation_d_hat',
                 qos_profile_pub)
 
             self.disturbance_translation_pub = self.create_publisher(
                 Vector3Stamped,
-                f'{self.namespace_prefix}/px4_mpc/attitude_d_hat',
+                'px4_mpc/attitude_d_hat',
                 qos_profile_pub)
 
         if self.sitl:
@@ -511,7 +511,7 @@ class SpacecraftMPC(Node):
             raise ValueError(f'Invalid mode: {self.mode}')
 
         # Solve MPC
-        u_pred, x_pred = self.mpc.solve(x0, ref=ref, verbose=True)
+        u_pred, x_pred = self.mpc.solve(x0, ref=ref)
 
         if self.mode == 'offset_free_wrench':
             # Publish disturbance

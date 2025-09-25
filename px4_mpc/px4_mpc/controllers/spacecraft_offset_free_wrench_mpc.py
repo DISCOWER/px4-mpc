@@ -210,6 +210,7 @@ class SpacecraftOffsetFreeWrenchMPC():
         # Solve MPC:
         x_hat = self.ekf.get_state()
 
+        uPred, xPred = self.mpc.compute_predicted_optimal_controls(x_hat[:12], yref, x_hat[12:])
         u_current = uPred[:, 0]
 
         # Debugging with verbose:
