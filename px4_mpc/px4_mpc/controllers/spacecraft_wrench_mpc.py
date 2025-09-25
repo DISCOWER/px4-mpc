@@ -120,9 +120,9 @@ class SpacecraftWrenchMPC():
         ocp.parameter_values = p_0
 
         # set constraints on U
-        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Tmax])
-        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Tmax])
-        ocp.constraints.idxbu = np.array([0, 1, 2])
+        ocp.constraints.lbu = np.array([-Fmax, -Fmax, -Fmax, -Tmax, -Tmax, -Tmax])
+        ocp.constraints.ubu = np.array([+Fmax, +Fmax, +Fmax, +Tmax, +Tmax, +Tmax])
+        ocp.constraints.idxbu = np.array([0, 1, 2, 3, 4, 5])
 
         # set constraints on X
         ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
