@@ -39,73 +39,48 @@ import control as ctrl
 class SpacecraftWrenchLQR():
     def __init__(self, model, dt=0.1):
         self.model = model
-        # x y z vx vy vz qx qy qz qw wx wy wz
-        self.x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        # x y z vx vy vz qx qy qz wx wy wz
         self.dt = dt
 
-        self.gain = self.setup()
+        self.A_fun, self.B_fun = self.model.sym_linearization()
 
-    def setup(self):
-        # From model, take dynamics
-        model = self.model.get_acados_model()
+        # Tuning
+        self.Q = np.diag([10, 10, 10, 1, 1, 1, 100, 100, 100, 10, 10, 10])
+        self.R = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
-        # Discretize dynamics
-        model_disct = self.RK(model, self.dt)
+    def get_gain(self, x_ref, u_ref=np.zeros((6,))):
 
-        # Linearize around hover
-        Ad = cs.Function('A', [model.x, model.u], [cs.jacobian(model_disct, model.x)])(self.x0, np.zeros(model.u.size()[0]))
-        Bd = cs.Function('B', [model.x, model.u], [cs.jacobian(model_disct, model.u)])(self.x0, np.zeros(model.u.size()[0]))
+        # Get A and B for state and system
+        print("LQR x_ref: ", x_ref.shape)
+        A = self.A_fun(np.zeros((12,)), u_ref, x_ref, u_ref)
+        B = self.B_fun(np.zeros((12,)), u_ref, x_ref, u_ref)
+        A = np.array(A).astype(np.float64)
+        B = np.array(B).astype(np.float64)
 
-        # Cost matrices
-        Q = np.diag([10, 10, 10, 1, 1, 1, 100, 100, 100, 10, 10, 10])
-        R = np.diag([1, 1, 1, 10, 10, 10])
+        # Discretize
+        sysc = ctrl.ss(A, B, np.eye(12), np.zeros((12, 6)))
+        sysd = ctrl.c2d(sysc, self.dt)
+        Ad = np.array(sysd.A)
+        Bd = np.array(sysd.B)
 
-        # Compute the infinite-horizon LQR controller using dlqr
-        L, _, _ = ctrl.dlqr(Ad, Bd, Q, R)
-        return L
+        # Compute LQR gain
+        self.gain, _, _ = ctrl.dlqr(Ad, Bd, self.Q, self.R)
+        return self.gain
 
     def solve(self, x0, verbose=False, ref=None):
-
         # Set reference, create zero reference
         x0 = x0.reshape((-1, 1))
         ref = ref.reshape((-1, 1))
         if verbose:
             print("LQR x0: ", x0)
             print("LQR ref: ", ref)
-            print("LQR gain: ", self.gain.shape)
 
         # Compute control action
-        output = -self.gain @ (x0 - ref)
+        K = self.get_gain(ref)
+        x_err = self.model.get_error_state(ref, x0).reshape((-1, 1))
+        output = -K @ x_err
+        output = np.asarray(output).reshape((1, 6))
         if verbose:
             print("LQR output: ", output.T)
 
-        # zero torque
-        output[3] = 0.0
-        output[4] = 0.0
-        output[5] = 0.0
-
-        return output.T, []
-
-    def RK(self, model, dt):
-        """
-        Create a Runge-Kutta expression for the given ODE.
-
-        Parameters:
-        nlsys (NonlinearSystem): The nonlinear system to integrate.
-        dt (float): Time step for the integrator.
-        order (int): Order of the Runge-Kutta method (default is 4).
-
-        Returns:
-        casadi.MX: CasADi expression for one integration step.
-        """
-        x = model.x
-        u = model.u
-
-        # Create ca function for the ODE
-        update_fcn = cs.Function('update_fcn', [x, u], [model.f_expl_expr])
-        k1 = update_fcn(x, u)
-        k2 = update_fcn(x + 0.5 * dt * k1, u)
-        k3 = update_fcn(x + 0.5 * dt * k2, u)
-        k4 = update_fcn(x + dt * k3, u)
-        rk_step_expr = x + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
-        return rk_step_expr
+        return output, []

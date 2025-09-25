@@ -114,7 +114,7 @@ class SpacecraftWrench6DoFModel():
         xdot = cs.vertcat(p_dot, v_dot, q_dot, w_dot)
 
         f_expl = cs.vertcat(v,
-                            v_dot_q(F, q)/self.mass,
+                            v_dot_q(F, q) / self.mass,
                             1 / 2 * cs.mtimes(Qmat(q), w),
                             np.linalg.inv(self.inertia) @ (tau - cs.cross(w, self.inertia @ w))
                             )

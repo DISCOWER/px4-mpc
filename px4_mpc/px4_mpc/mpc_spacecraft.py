@@ -111,9 +111,9 @@ class SpacecraftMPC(Node):
             from px4_mpc.controllers.spacecraft_offset_free_wrench_mpc import SpacecraftOffsetFreeWrenchMPC
             self.mpc = SpacecraftOffsetFreeWrenchMPC()
         elif self.mode == 'lqr_wrench':
-            from px4_mpc.models.spacecraft_wrench_6dof_model import SpacecraftWrench6DoFModel
+            from px4_mpc.models.spacecraft_wrench_model import SpacecraftWrenchModel
             from px4_mpc.controllers.spacecraft_wrench_lqr import SpacecraftWrenchLQR
-            self.mpc = SpacecraftWrenchLQR(model=SpacecraftWrench6DoFModel())
+            self.mpc = SpacecraftWrenchLQR(model=SpacecraftWrenchModel())
         elif self.mode == 'direct_allocation':
             from px4_mpc.models.spacecraft_direct_allocation_model import SpacecraftDirectAllocationModel
             from px4_mpc.controllers.spacecraft_direct_allocation_mpc import SpacecraftDirectAllocationMPC
@@ -320,11 +320,7 @@ class SpacecraftMPC(Node):
         eps_tau = 0.00
 
         thrust_outputs_msg.xyz = [u_pred[0, 0] - eps_x, -u_pred[0, 1] - eps_y, -0.0]
-        if self.mode == 'wrench':
-            torque_outputs_msg.xyz = [0.0, 0.0, -u_pred[0, 2] - eps_tau]
-        elif self.mode == 'offset_free_wrench' or self.mode == 'lqr_wrench':
-            # offset-free is already generalized for 6dof
-            torque_outputs_msg.xyz = [0.0, 0.0, -u_pred[0, 5] - eps_tau]
+        torque_outputs_msg.xyz = [0.0, 0.0, -u_pred[0, 5] - eps_tau]
 
         self.publisher_thrust_setpoint.publish(thrust_outputs_msg)
         self.publisher_torque_setpoint.publish(torque_outputs_msg)
@@ -471,7 +467,7 @@ class SpacecraftMPC(Node):
                                   np.zeros(3),                  # velocity
                                   self.setpoint_attitude,       # attitude
                                   np.zeros(3),                  # angular velocity
-                                  np.zeros(3)), axis=0)         # inputs reference (F, torque)
+                                  np.zeros(6)), axis=0)         # inputs reference (F, torque)
             ref = np.repeat(ref.reshape((-1, 1)), self.mpc.N + 1, axis=1)
         elif self.mode == 'lqr_wrench':
             x0 = np.array([self.vehicle_local_position[0],
@@ -480,15 +476,16 @@ class SpacecraftMPC(Node):
                            self.vehicle_local_velocity[0],
                            self.vehicle_local_velocity[1],
                            self.vehicle_local_velocity[2],
+                           self.vehicle_attitude[0],
                            self.vehicle_attitude[1],
                            self.vehicle_attitude[2],
                            self.vehicle_attitude[3],
                            self.vehicle_angular_velocity[0],
                            self.vehicle_angular_velocity[1],
-                           self.vehicle_angular_velocity[2]]).reshape(12, 1)
+                           self.vehicle_angular_velocity[2]]).reshape(13, 1)
             ref = np.concatenate((self.setpoint_position,       # position
                                   np.zeros(3),                  # velocity
-                                  self.setpoint_attitude[1:],       # attitude
+                                  self.setpoint_attitude[0:],       # attitude
                                   np.zeros(3)), axis=0)         # angular velocity
         elif self.mode == 'direct_allocation':
             x0 = np.array([self.vehicle_local_position[0],

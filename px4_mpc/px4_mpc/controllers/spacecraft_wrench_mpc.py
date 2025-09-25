@@ -77,7 +77,7 @@ class SpacecraftWrenchMPC():
                  7e1, 7e1, 7e1,
                  8e4,
                  1e1, 1e1, 1e1]
-        R_mat = [2e1, 2e1, 20e1]
+        R_mat = [2e1, 2e1, 2e1, 20e1, 20e1, 20e1]
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -85,7 +85,7 @@ class SpacecraftWrenchMPC():
 
         # References:
         x_ref = cs.MX.sym('x_ref', (13, 1))
-        u_ref = cs.MX.sym('u_ref', (3, 1))
+        u_ref = cs.MX.sym('u_ref', (6, 1))
 
         # Calculate errors
         # x : p,v,q,w               , R9 x SO(3)
