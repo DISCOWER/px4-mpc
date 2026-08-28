@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.fixedwing_model import FixedWingModel
 from controllers.fixedwing_mpc import FixedWingMPC
-from px4_mpc.safety_filters import CBFSafetyFilter
+from px4_mpc.safety_filters import CBFSafetyFilter, CompositeCBFSafetyFilter
 
 def quat_to_R(q):
     """Converts a quaternion [qw, qx, qy, qz] to a 3x3 rotation matrix"""
@@ -65,7 +65,7 @@ class SimulationCase:
         self.dist_k = dist_k
         self.dist_dv = dist_dv
         self.solver_mode = solver_mode
-        
+        self.cbf_filter=None
         # format legend entries/labels to have same widtths and include the solver type
         r = self.rpy_deg
         u = self.u_raw
@@ -88,8 +88,9 @@ class SimulationCase:
         
     def run_sim(self, mpc, cbf_filter, max_steps):
         self.Ts = mpc.Ts
-        
+        self.cbf_filter = cbf_filter
         x0 = np.zeros(8)
+        x0[2] = 50.0
         x0[3] = self.v0
         x0[4:8] = euler_to_quaternion(np.radians(self.rpy_deg[0]), np.radians(self.rpy_deg[1]), np.radians(self.rpy_deg[2]))
         
@@ -105,11 +106,10 @@ class SimulationCase:
         for k in range(max_steps):
             if k == self.dist_k:
                 x_curr[3] += self.dist_dv
-                
-            _, _, _ = mpc.solve_null(x_curr, np.zeros((mpc.N+1, mpc.nx)), verbose=False)
+            # _, _, _ = mpc.solve_null(x_curr, np.zeros((mpc.N+1, mpc.nx)), verbose=False)
             
             simU_flat = np.tile(self.u_raw, (mpc.N, 1))
-            u_filter_horizon, _, shield_active = cbf_filter.filter(x_curr, simU_flat, k)
+            u_filter_horizon, shield_active,_, diagnostics= cbf_filter.filter(x_curr, simU_flat, k)
             u_act = u_filter_horizon[0, :]
             
             h_val, _, cbf_val = cbf_filter._get_dcbf_components(x_curr, u_act)
@@ -124,25 +124,34 @@ class SimulationCase:
             self.shield_log[k] = shield_active
             self.h_log[k] = float(h_val)
             self.cbf_log[k] = float(cbf_val)
+            if diagnostics is not None: print("[!] SOLVER STATUS NEQ 0")
             
     def init_plots(self, ax_3d, axs_2d, color, t_array):
         self.color = color
         
         self.flown_line, = ax_3d.plot([], [], [], color=color, linewidth=1.0, 
-                                      label=self.label,linestyle = self.linestyle)
+                                      label=self.label, linestyle=self.linestyle)
         self.current_pt, = ax_3d.plot([], [], [], 'o', markersize=6, color=color)
+        
+        # initialize a dedicated floor surface object for this simulation case using its assigned color
+        grid_size = 15.0
+        x_g = np.linspace(-grid_size, grid_size, 5)
+        y_g = np.linspace(-grid_size, grid_size, 5)
+        xx_g, yy_g = np.meshgrid(x_g, y_g)
+        zz_g = np.zeros_like(xx_g)
+        
+        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=color, alpha=0.15, edgecolor=color, linewidth=0.2)
         
         ax_fxw, ax_fzw, ax_roll, ax_speed, ax_margin, ax_cbf = axs_2d
         
-        ax_fxw.plot(t_array, self.U[:, 0], color=color, linestyle = self.linestyle)
-        ax_fzw.plot(t_array, self.U[:, 1], color=color, linestyle = self.linestyle)
-        ax_roll.plot(t_array, self.U[:, 2], color=color, linestyle = self.linestyle)
-        ax_speed.plot(t_array, self.X[:, 3], color=color, linestyle = self.linestyle)
-        ax_margin.plot(t_array, self.h_log, color=color, linestyle = self.linestyle)
-        ax_cbf.plot(t_array, self.cbf_log, color=color, linestyle = self.linestyle)
+        ax_fxw.plot(t_array, self.U[:, 0], color=color, linestyle=self.linestyle)
+        ax_fzw.plot(t_array, self.U[:, 1], color=color, linestyle=self.linestyle)
+        ax_roll.plot(t_array, self.U[:, 2], color=color, linestyle=self.linestyle)
+        ax_speed.plot(t_array, self.X[:, 3], color=color, linestyle=self.linestyle)
+        ax_margin.plot(t_array, self.h_log, color=color, linestyle=self.linestyle)
+        ax_cbf.plot(t_array, self.cbf_log, color=color, linestyle=self.linestyle)
         
-        # apply the safety shading to all 6 subplots dynamically
-        hatch_pattern = '///' if self.solver_mode== "custom" else "--"
+        hatch_pattern = '///' if self.solver_mode == "custom" else "--"
         if np.any(self.shield_log):
             for ax in axs_2d:
                 ax.fill_between(t_array, 0, 1, where=self.shield_log, color=color, 
@@ -162,6 +171,23 @@ class SimulationCase:
         for q in self.quivers:
             q.remove()
         self.quivers.clear()
+        
+        # remove the old surface collection if it exists
+        if self.floor_surface is not None:
+            self.floor_surface.remove()
+            
+        # extract current x, y position and build a surface grid centered beneath the plane
+        px, py = self.X[k, 0], self.X[k, 1]
+        floor_z = self.cbf_filter.zmin if hasattr(self.cbf_filter,'zmin') else 0.0
+        grid_size = 10.0
+        
+        x_g = np.linspace(px - grid_size, px + grid_size, 5)
+        y_g = np.linspace(py - grid_size, py + grid_size, 5)
+        xx_g, yy_g = np.meshgrid(x_g, y_g)
+        zz_g = np.full_like(xx_g, floor_z)
+        
+        # plot the updated surface using the case instance's unique color
+        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=self.color, alpha=0.15, edgecolor=self.color, linewidth=0.2)
         
         pos = self.X[k, 0:3]
         R = quat_to_R(self.X[k, 4:8])
@@ -197,7 +223,7 @@ def build_dashboard(cases, model, max_steps, Ts, N_horizon):
     colors = ['#FF0505', "#00BDBD", "#5CB800", '#8205FF', '#FF9805', "#CA00A9"]
     
     for idx, case in enumerate(cases):
-        color_idx = idx //2
+        color_idx = idx //1 # TODO change back to alternate every 2 or 3 if we do different solvers
         case.init_plots(ax_3d, axes_2d, colors[color_idx % len(colors)], t_array)
         
     all_x = np.concatenate([c.X[:, 0] for c in cases])
@@ -295,11 +321,12 @@ def build_dashboard(cases, model, max_steps, Ts, N_horizon):
     plt.show()
 
 if __name__ == "__main__":
-    max_steps = 1000
+    max_steps = 500
     Ts = 0.05
     N_horizon = 40
     K_repair = 30
     v_min = 10.0
+    z_min = 25.0
     model = FixedWingModel()
     
     print("compiling acados solvers...")
@@ -308,6 +335,8 @@ if __name__ == "__main__":
                                  vmin=v_min, gamma1=1.0, gamma2=1.0, beta=8.5, max_iters=8)
     cbf_acados = CBFSafetyFilter(model, N_horizon, K_repair, Ts, filter_mode="HOCBF", solver_mode="acados", 
                                  vmin=v_min, gamma1=1.0, gamma2=1.0, beta=8.5, max_iters=8)
+    cbf_comp = CompositeCBFSafetyFilter(model, N_horizon, K_repair, Ts, solver_mode="acados", 
+                                     vmin=v_min, zmin=z_min, gamma=70.0, p0 = -6.0, kappa=80.0)
     print("compilation complete. running cases...")
     
     cases = []
@@ -315,36 +344,45 @@ if __name__ == "__main__":
     
     # roll pitch yaw angles in degrees
     rpy_angles = [
-        [0, -15, 80],
-        [0, -15, 80],
-        [0, -30, 80],
-        [0, -30, 80],
-        [0, -45, 80],
-        [0, -45, 80],
-        [0, -60, 80],
-        [0, -60, 80]
+        # [0, 10, 80],
+        [0, 10, 80],
+        [0, 30, 80],
+        [0, 40, 80],
+        [0, 50, 80],
+        [0, 60, 80],
+        
+        # [0, -15, 80],
+        # [0, -30, 80],
+        # [0, -45, 80],
+        # [0, -60, 80],
     ]
 
     # parallel array for wind parameters [dist_k, dist_dv]
     wind_params = [
         [ 0, 0.0],
-        [ 1, 5.0],
+        # [ 1, 5.0],
         [ 0, 0.0],
-        [ 1, 5.0],
+        # [ 1, 5.0],
         [ 0, 0.0],
-        [ 1, 5.0],
         [ 0, 0.0],
-        [ 1, 5.0],
+        [ 0, 0.0],
+        
+        # [ 1, 5.0],
+        # [ 0, 0.0],
+        # [ 1, 5.0],
+        # [ 1, 5.0],
     ]
     
     for rpy, wind in zip(rpy_angles, wind_params):
         dist_k, dist_dv = wind
-        for solver in ["custom", "acados"]:
-            c = SimulationCase(v0=15.0, rpy_deg=rpy, u_raw=base_u, dist_k=dist_k, dist_dv=dist_dv, solver_mode=solver)
-            cases.append(c)
+        # for solver in ["custom", "acados"]:
+        solver = "acados"
+        c = SimulationCase(v0=15.0, rpy_deg=rpy, u_raw=base_u, dist_k=dist_k, dist_dv=dist_dv, solver_mode=solver)
+        cases.append(c)
     
     for c in cases:
-        active_filter = cbf_custom if c.solver_mode == "custom" else cbf_acados
+        # active_filter = cbf_custom if c.solver_mode == "custom" else cbf_comp
+        active_filter = cbf_comp
         c.run_sim(mpc_solver, active_filter, max_steps)
         
     build_dashboard(cases, model, max_steps, Ts, N_horizon)

@@ -235,7 +235,7 @@ def run_closed_loop_mpc(verbose = False):
         t_filter_call = time.perf_counter()
         
         if cbf_filter is not None and use_filter:
-            u_filter_horizon,_ , shield_active = cbf_filter.filter(x_curr, get_raw_command(useRawCmd,simU),k)
+            u_filter_horizon, shield_active,_,_ = cbf_filter.filter(x_curr, get_raw_command(useRawCmd,simU),k)
             u_filter = u_filter_horizon[0, :]
             shield_hist[k] = shield_active
             if shield_active and verbose:
