@@ -140,7 +140,7 @@ class SimulationCase:
         xx_g, yy_g = np.meshgrid(x_g, y_g)
         zz_g = np.zeros_like(xx_g)
         
-        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=color, alpha=0.15, edgecolor=color, linewidth=0.2)
+        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=color, alpha=0.1, edgecolor=color, linewidth=0.2)
         
         ax_fxw, ax_fzw, ax_roll, ax_speed, ax_margin, ax_cbf = axs_2d
         
@@ -155,7 +155,7 @@ class SimulationCase:
         if np.any(self.shield_log):
             for ax in axs_2d:
                 ax.fill_between(t_array, 0, 1, where=self.shield_log, color=color, 
-                                alpha=0.1, hatch=hatch_pattern, transform=ax.get_xaxis_transform())
+                                alpha=0.075, hatch=hatch_pattern, transform=ax.get_xaxis_transform())
         
         self.vlines = [
             ax.axvline(x=0, color='black', linestyle='--', linewidth=0.8, alpha=0.8) for ax in axs_2d
@@ -187,7 +187,7 @@ class SimulationCase:
         zz_g = np.full_like(xx_g, floor_z)
         
         # plot the updated surface using the case instance's unique color
-        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=self.color, alpha=0.15, edgecolor=self.color, linewidth=0.2)
+        self.floor_surface = ax_3d.plot_surface(xx_g, yy_g, zz_g, color=self.color, alpha=0.1, edgecolor=self.color, linewidth=0.2)
         
         pos = self.X[k, 0:3]
         R = quat_to_R(self.X[k, 4:8])
@@ -223,7 +223,7 @@ def build_dashboard(cases, model, max_steps, Ts, N_horizon):
     colors = ['#FF0505', "#00BDBD", "#5CB800", '#8205FF', '#FF9805', "#CA00A9"]
     
     for idx, case in enumerate(cases):
-        color_idx = idx //1 # TODO change back to alternate every 2 or 3 if we do different solvers
+        color_idx = idx //3 # TODO change back to alternate every 2 or 3 if we do different solvers
         case.init_plots(ax_3d, axes_2d, colors[color_idx % len(colors)], t_array)
         
     all_x = np.concatenate([c.X[:, 0] for c in cases])
@@ -302,7 +302,7 @@ def build_dashboard(cases, model, max_steps, Ts, N_horizon):
             next_val = (time_slider.val + 1) % max_steps
             time_slider.set_val(next_val)
             
-    timer = fig.canvas.new_timer(interval=50)
+    timer = fig.canvas.new_timer(interval=100)
     timer.add_callback(step_forward)
 
     def toggle(event):
@@ -335,49 +335,71 @@ if __name__ == "__main__":
                                  vmin=v_min, gamma1=1.0, gamma2=1.0, beta=8.5, max_iters=8)
     cbf_acados = CBFSafetyFilter(model, N_horizon, K_repair, Ts, filter_mode="HOCBF", solver_mode="acados", 
                                  vmin=v_min, gamma1=1.0, gamma2=1.0, beta=8.5, max_iters=8)
-    cbf_comp = CompositeCBFSafetyFilter(model, N_horizon, K_repair, Ts, solver_mode="acados", 
-                                     vmin=v_min, zmin=z_min, gamma=70.0, p0 = -6.0, kappa=80.0)
+    cbf_comp = CompositeCBFSafetyFilter(model, N_horizon, K_repair, Ts, solver_mode="acados",
+                                        vmin=v_min, zmin=z_min, gamma=90.0, p0 = -6.0, kappa=5.0,alpha=.5) 
+                                        # vmin=v_min, zmin=z_min, gamma=50.0, p0 = -2.0, kappa=5.0,alpha=.4) 
+                                        # vmin=v_min, zmin=z_min, gamma=15.0, p0 = -1.5, kappa=15.0,alpha=2.0) # default
+                                        # vmin=v_min, zmin=z_min, gamma=70.0, p0 = -6.0, kappa=80.0) # initial aggressive
+    
     print("compilation complete. running cases...")
     
     cases = []
-    base_u = [4.0, 9.81, 0.0]
+    base_u = [4.0, 9.81, .5]
     
     # roll pitch yaw angles in degrees
-    rpy_angles = [
-        # [0, 10, 80],
-        [0, 10, 80],
-        [0, 30, 80],
-        [0, 40, 80],
-        [0, 50, 80],
-        [0, 60, 80],
+    rpy_params = [
+        [0, 45, 80],
+        [0, 45, 80],
+        [0, 45, 80],
+        [0, 25, 80],
+        [0, 25, 80],
+        [0, 25, 80],
+        [0, -25, 80],
+        [0, -25, 80],
+        [0, -25, 80],
+        [0, -45, 80],
+        [0, -45, 80],
+        [0, -45, 80],
         
-        # [0, -15, 80],
-        # [0, -30, 80],
-        # [0, -45, 80],
-        # [0, -60, 80],
+    ]
+    
+    u_params = [
+        [4.0, 9.81, 0.25],
+        [4.0, 9.81, 0.0],
+        [4.0, 9.81, -0.25],
+        [4.0, 9.81, 0.25],
+        [4.0, 9.81, 0.0],
+        [4.0, 9.81, -0.25],
+        [4.0, 9.81, 0.25],
+        [4.0, 9.81, 0.0],
+        [4.0, 9.81, -0.25],
+        [4.0, 9.81, 0.25],
+        [4.0, 9.81, 0.0],
+        [4.0, 9.81, -0.25],
     ]
 
     # parallel array for wind parameters [dist_k, dist_dv]
     wind_params = [
-        [ 0, 0.0],
-        # [ 1, 5.0],
-        [ 0, 0.0],
-        # [ 1, 5.0],
-        [ 0, 0.0],
-        [ 0, 0.0],
-        [ 0, 0.0],
-        
-        # [ 1, 5.0],
-        # [ 0, 0.0],
-        # [ 1, 5.0],
-        # [ 1, 5.0],
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+        [ 0, 0.0], 
+               
     ]
     
-    for rpy, wind in zip(rpy_angles, wind_params):
+    for rpy, u, wind in zip(rpy_params, u_params, wind_params):
         dist_k, dist_dv = wind
         # for solver in ["custom", "acados"]:
         solver = "acados"
-        c = SimulationCase(v0=15.0, rpy_deg=rpy, u_raw=base_u, dist_k=dist_k, dist_dv=dist_dv, solver_mode=solver)
+        c = SimulationCase(v0=15.0, rpy_deg=rpy, u_raw=u, dist_k=dist_k, dist_dv=dist_dv, solver_mode=solver)
         cases.append(c)
     
     for c in cases:
