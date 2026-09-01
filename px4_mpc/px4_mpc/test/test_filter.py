@@ -57,6 +57,27 @@ def quat_to_euler(q):
     
     return np.degrees(np.array([roll, pitch, yaw]))
 
+def print_diagnostics(diag, case_label=""):
+        step = diag.get('sim_step', -1)
+        status = diag.get('status_code', -1)
+        mode = diag.get('solver_mode', 'unknown')
+        pen = diag.get('final_penalty', 0.0)
+        
+        print(f"\n[!] solver failed in case: {case_label}")
+        print(f"    step: {step} | mode: {mode} | status: {status} | penalty: {pen:.4e}")
+        
+        x0 = np.array(diag.get('x0', []))
+        if len(x0) == 8:
+            print(f"    state x0: pos=[{x0[0]:.2f}, {x0[1]:.2f}, {x0[2]:.2f}] v={x0[3]:.2f}")
+            
+        u_nom = np.array(diag.get('U_nom', []))
+        u_fail = np.array(diag.get('U_failed', []))
+        
+        # pull just the first step commands to see what it was attempting vs what failed
+        if u_nom.ndim == 2 and u_fail.ndim == 2:
+            print(f"    u_nom[0]:  [{u_nom[0,0]:+.3f}, {u_nom[1,0]:+.3f}, {u_nom[2,0]:+.3f}]")
+            print(f"    u_fail[0]: [{u_fail[0,0]:+.3f}, {u_fail[1,0]:+.3f}, {u_fail[2,0]:+.3f}]")
+
 class SimulationCase:
     def __init__(self, v0, rpy_deg, u_raw, dist_k=-1, dist_dv=0.0, solver_mode="custom"):
         self.v0 = v0
@@ -124,8 +145,10 @@ class SimulationCase:
             self.shield_log[k] = shield_active
             self.h_log[k] = float(h_val)
             self.cbf_log[k] = float(cbf_val)
-            if diagnostics is not None: print("[!] SOLVER STATUS NEQ 0")
-            
+            if diagnostics is not None: 
+                print("[!] SOLVER STATUS NEQ 0")
+                print_diagnostics(diagnostics, self.label)
+
     def init_plots(self, ax_3d, axs_2d, color, t_array):
         self.color = color
         

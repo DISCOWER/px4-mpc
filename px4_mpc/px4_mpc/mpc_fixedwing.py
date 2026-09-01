@@ -16,11 +16,12 @@ from px4_msgs.msg import VehicleAttitude
 from px4_msgs.msg import VehicleLocalPosition
 from px4_msgs.msg import VehicleRatesSetpoint
 
-from px4_mpc.models.fixedwing_model import FixedwingModel
-from px4_mpc.controllers.fixedwing_mpc import FixedwingMPC
+from px4_mpc.models.fixedwing_model import FixedWingModel
+from px4_mpc.controllers.fixedwing_mpc import FixedWingMPC
 from px4_mpc.safety_filters import CBFSafetyFilter
+from px4_mpc.safety_filters import CompositeCBFSafetyFilter
 
-class FixedwingMPCNode(Node):
+class FixedWingMPCNode(Node):
     def __init__(self):
         super().__init__('fw_mpc_publisher')
         
@@ -56,13 +57,13 @@ class FixedwingMPCNode(Node):
         self.speed_min = 0.1
 
         # initialize objs
-        self.model = FixedwingModel()
-        self.mpc = FixedwingMPC(self.model, N=40, Tf=2.0,trackingAttitude=False)
+        self.model = FixedWingModel()
+        self.mpc = FixedWingMPC(self.model, N=40, Tf=2.0,trackingAttitude=False)
         self.safetyfilter= CBFSafetyFilter(v_min = 12.0, lambda_cbf=2.0, t_max=self.model.max_thrust_acc,t_min=0.0)
         self.dt = self.mpc.Tf / self.mpc.N
         
         # preallocate buffers
-        self.model = FixedwingModel()
+        self.model = FixedWingModel()
         self.nx = self.model.get_acados_model().x.size()[0]
         
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
@@ -143,7 +144,7 @@ class FixedwingMPCNode(Node):
             # TODO? set mpc_initialized = false when we stop the node (and plan to allow restart?)
             if not self.mpc_initialized:
                 self.get_logger().info(f"Initializing Acados Solver at Speed: {x0[3]:.1f} m/s")
-                self.mpc = FixedwingMPC(self.model, x0, N=40, Tf=2.0)
+                self.mpc = FixedWingMPC(self.model, x0, N=40, Tf=2.0)
                 self.dt = self.mpc.Tf / self.mpc.N
                 self.mpc_initialized = True
     
@@ -264,7 +265,7 @@ class FixedwingMPCNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    fixedwing_mpc_node = FixedwingMPCNode()
+    fixedwing_mpc_node = FixedWingMPCNode()
     rclpy.spin(fixedwing_mpc_node)
     fixedwing_mpc_node.destroy_node()
     rclpy.shutdown()
