@@ -1,15 +1,15 @@
 Panels:
   - Class: rviz_common/Displays
-    Help Height: 78
+    Help Height: 70
     Name: Displays
     Property Tree Widget:
       Expanded:
         - /Global Options1
         - /Status1
-        - /Reference path1
         - /FW pose1
+        - /Reference (from MPC)1
       Splitter Ratio: 0.5
-    Tree Height: 386
+    Tree Height: 310
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -36,24 +36,11 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
       Value: true
-    - Class: rviz_default_plugins/Marker
-      Enabled: true
-      Name: Reference path
-      Namespaces:
-        reference_path: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /px4_viz/reference_path
-      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: FW pose
       Namespaces:
-        vehicle_mesh: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -101,6 +88,34 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /px4_viz/optimal_path
       Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 255; 0; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Reference (from MPC)
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /px4_mpc/global_reference_path
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -121,8 +136,8 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
-      Distance: 141.608154296875
+      Class: rviz_default_plugins/ThirdPersonFollower
+      Distance: 85.75279998779297
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -132,25 +147,185 @@ Visualization Manager:
         X: 0
         Y: 0
         Z: 0
-      Focal Shape Fixed Size: false
+      Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.674796462059021
-      Target Frame: <Fixed Frame>
-      Value: Orbit (rviz)
-      Yaw: 4.088572978973389
-    Saved: ~
+      Pitch: -0.19740000367164612
+      Target Frame: base_link
+      Value: ThirdPersonFollower (rviz_default_plugins)
+      Yaw: 3.141590118408203
+    Saved:
+      - Class: rviz_default_plugins/Orbit
+        Distance: 177.64703369140625
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 27.111709594726562
+          Y: -4.746861934661865
+          Z: 25.07868766784668
+        Focal Shape Fixed Size: false
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: Orbit
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 0.5647965669631958
+        Target Frame: <Fixed Frame>
+        Value: Orbit (rviz)
+        Yaw: 3.923576593399048
+      - Class: rviz_default_plugins/Orbit
+        Distance: 252.54281616210938
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0.0005074441432952881
+          Y: -0.7339052557945251
+          Z: 29.759521484375
+        Focal Shape Fixed Size: false
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: origin XY
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 1.5697963237762451
+        Target Frame: <Fixed Frame>
+        Value: Orbit (rviz)
+        Yaw: 3.1635634899139404
+      - Class: rviz_default_plugins/Orbit
+        Distance: 252.54281616210938
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 61.16899108886719
+          Y: 14.57748031616211
+          Z: 29.821006774902344
+        Focal Shape Fixed Size: false
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: loiter XY
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 1.5697963237762451
+        Target Frame: <Fixed Frame>
+        Value: Orbit (rviz)
+        Yaw: 3.1635634899139404
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Distance: 110
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: -19.999996185302734
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: follow ortho R
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 0.5
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Yaw: 3.926875114440918
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Distance: 110
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: -19.999996185302734
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: follow ortho L
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 0.5
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Yaw: 2.3561251163482666
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Distance: 85.75279998779297
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: 0
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: follow fwd
+        Near Clip Distance: 0.009999999776482582
+        Pitch: -0.19740000367164612
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Yaw: 3.141590118408203
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Distance: 102.98796081542969
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: -10
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: follow top
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 1.5697963237762451
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Yaw: 3.141590118408203
+      - Class: rviz_default_plugins/ThirdPersonFollower
+        Distance: 85.75279998779297
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: -20
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: follow fwd 1
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 0.4000000059604645
+        Target Frame: base_link
+        Value: ThirdPersonFollower (rviz_default_plugins)
+        Yaw: 3.141590118408203
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 975
+  Height: 1403
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000017400000379fc0200000002fb000000100044006900730070006c006100790073010000003b0000020b000000c700fffffffb0000000a00560069006500770073010000024c00000168000000a000ffffff000004060000037900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd000000010000000300000500000001b7fc0100000002fb000000100044006900730070006c0061007900730100000000000003b20000015600fffffffb0000000a0056006900650077007301000003b8000001480000010000ffffff000005000000036800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
-  Width: 1408
-  X: 1152
-  Y: 5
+  Width: 1280
+  X: 1280
+  Y: 0

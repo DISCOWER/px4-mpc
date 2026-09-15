@@ -1,274 +1,532 @@
 #!/usr/bin/env python3
-
 import rclpy
 import numpy as np
 from rclpy.node import Node
 from rclpy.clock import Clock
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
-from geometry_msgs.msg import PointStamped # We will use Point xyz fields to hold 3 variables
-from std_msgs.msg import Float64MultiArray
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped, PointStamped
+from std_msgs.msg import Float64MultiArray, Int32, Float32
 
-
-from px4_msgs.msg import OffboardControlMode
-from px4_msgs.msg import VehicleStatus
-from px4_msgs.msg import VehicleAttitude
-from px4_msgs.msg import VehicleLocalPosition
-from px4_msgs.msg import VehicleRatesSetpoint
+from px4_msgs.msg import VehicleStatus, VehicleAttitude, VehicleLocalPosition
+from px4_msgs.msg import VehicleRatesSetpoint, TrajectorySetpoint
 
 from px4_mpc.models.fixedwing_model import FixedWingModel
 from px4_mpc.controllers.fixedwing_mpc import FixedWingMPC
-from px4_mpc.safety_filters import CBFSafetyFilter
-from px4_mpc.safety_filters import CompositeCBFSafetyFilter
+from px4_mpc.safety_filters import CBFSafetyFilter, CompositeCBFSafetyFilter
 
 class FixedWingMPCNode(Node):
     def __init__(self):
         super().__init__('fw_mpc_publisher')
-        
-        qos_profile_pub = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, 
-                                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, 
-                                history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-        qos_profile_sub = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, 
-                                durability=QoSDurabilityPolicy.VOLATILE, 
-                                history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-        # will have to check the topic versions
-        self.status_sub = self.create_subscription(VehicleStatus, 
-            '/fmu/out/vehicle_status_v4', self.vehicle_status_callback, qos_profile_sub)
-        self.attitude_sub = self.create_subscription(VehicleAttitude, 
-            '/fmu/out/vehicle_attitude', self.vehicle_attitude_callback, qos_profile_sub)
-        self.local_position_sub = self.create_subscription(VehicleLocalPosition,
-            '/fmu/out/vehicle_local_position_v1', self.vehicle_local_position_callback, qos_profile_sub)
 
-        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, 
-            '/fmu/in/offboard_control_mode', qos_profile_pub)
-        self.publisher_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, 
-            '/fmu/in/vehicle_rates_setpoint', qos_profile_pub)
-        
-        self.optimal_path_raw_pub = self.create_publisher(Float64MultiArray,"mpc/traj_optimal_raw",1)
-        self.error_pub = self.create_publisher(PointStamped, "/mpc/debug/tracking_error_xyz", 1)
-        self.effort_pub = self.create_publisher(PointStamped, "/mpc/debug/control_effort", 1)
-        self.speed_pub = self.create_publisher(PointStamped, "/mpc/debug/speeds", 1)
-        
-        
-        # Path following parameters from pytorch implementation
-        self.path_center = np.array([30.0, 15.0, 30.0]) # ENU: Loitering at 20m altitude
-        self.path_radius = 50.0
-        self.target_speed = 10.0
-        self.speed_min = 0.1
+        # qos profiles for px4 dds bridge
+        qos_pub = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
+        qos_sub = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
+        qos_latched = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST, depth=1)
 
-        # initialize objs
+        # px4 telemetry subscribers
+        self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status_v1', self.vehicle_status_callback, qos_sub)
+        self.create_subscription(VehicleAttitude, '/fmu/out/vehicle_attitude', self.vehicle_attitude_callback, qos_sub)
+        self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.vehicle_local_position_callback, qos_sub)
+
+        # control publishers
+        self.pub_traj_setpoint = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_pub)
+        self.pub_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, '/fmu/in/vehicle_rates_setpoint', qos_pub)
+
+        # path viz
+        self.global_ref_path_pub = self.create_publisher(Path, '/px4_mpc/global_reference_path', qos_latched)
+
+        # diagnostics, QoS is best effort as these are only for visualization and debugging
+        self.optimal_path_raw_pub = self.create_publisher(Float64MultiArray, '/mpc/traj_optimal_raw', 1)
+        self.plane_actual_pos_pub = self.create_publisher(PointStamped, '/mpc/state/plane_actual_pos', 1)
+        self.solver_state_pos_pub = self.create_publisher(PointStamped, '/mpc/state/solver_x0_pos', 1)
+        self.error_pub = self.create_publisher(PointStamped, '/mpc/debug/tracking_error_xyz', 1)
+        self.effort_pub = self.create_publisher(PointStamped, '/mpc/debug/control_effort', 1)
+        
+        # solver statuses
+        self.solver_status_pub = self.create_publisher(Int32, '/mpc/debug/solver_diagnostics/solver_status', 1)
+        self.solver_fail_pub = self.create_publisher(Int32, '/mpc/debug/solver_diagnostics/solver_fail', 1)
+        self.detect_offboard_pub = self.create_publisher(Int32, '/mpc/debug/solver_diagnostics/detect_offboard', 1)
+        
+        # cbf statuses
+        self.cbf_tripped_pub = self.create_publisher(Int32, '/mpc/debug/cbf/tripped', 1)
+        self.cbf_penalty_pub = self.create_publisher(Float32, '/mpc/debug/cbf/penalty', 1)
+        self.cbf_status_pub = self.create_publisher(Int32, '/mpc/debug/cbf/solver_status', 1)
+
+        self.f_w_flu_desired_pub = self.create_publisher(PointStamped, '/mpc/debug/f_w_flu_desired', 1)
+        self.f_w_flu_achieved_pub = self.create_publisher(PointStamped, '/mpc/debug/f_w_flu_achieved', 1)
+
+        # mpc constraints and targets
+        self.Ts = 0.05
+        self.N_horizon = 40
+        self.v_min = 10.0
+        self.z_min = 20.0
+        includeCBF = True
+        # safety parameters
+        self.N_repair = 30
+        self.filter_mode ="HOCBF" # "HOCBF" or "composite" or None
+        self.filter_params_hocbf = {
+            "filter_mode": self.filter_mode,
+            "solver_mode": "custom", # acados or (hocbf only) "custom"
+            "repair_horizon": self.N_repair,
+            "vmin": self.v_min,
+            "gamma2": 1.0,
+            "gamma1": 1.0,
+            "beta": 8.5,
+            "max_iters": 8
+        }
+        self.filter_params_composite = {
+            "solver_mode": "acados", # acados or (hocbf only) "custom"
+            "vmin": self.v_min,
+            "zmin": self.z_min,
+            "repair_horizon": self.N_repair,
+            "gamma": 90.0,
+            "p0": -6.0,
+            "kappa": 5.0,
+            "alpha": 0.4,
+            "beta": 5.0,
+            "max_iters": 10
+        }
+        
+        self.target_speed = 14.0
+        # PATH ARRAY
+        self.path_idx = 0
+        self.path_center = np.array([0.0, 0.0, 35.0])
+        self.path_radius = 40.0
+        # precompute a dense array of the circle for the orthogonal projection to snap to
+        theta_array = np.linspace(0.0, 2.0 * np.pi, 2000)
+        self.global_path_array = np.zeros((2000, 3))
+        angle_incline = np.radians(50.0) #np.pi/5 # or do np.radians(incline deg)
+        
+        R_incline = np.array([
+            [np.cos(angle_incline),  0.0, np.sin(angle_incline)],
+            [0.0, 1.0, 0.0],
+            [-np.sin(angle_incline), 0.0, np.cos(angle_incline)]
+        ])
+        # rounded rectangle
+        rect_L = 100.0; rect_W = 40.0
+        p = 4.0  # the "roundness" knob. 2.0 = exact ellipse, 4.0 = rounded rectangle, 15.0+ = razor sharp
+        rect_r = 1.0 / ((np.abs(np.cos(theta_array)) / rect_L)**p + (np.abs(np.sin(theta_array)) / rect_W)**p)**(1.0 / p)
+        
+        shape_rect = np.array([rect_r * np.cos(theta_array), rect_r * np.sin(theta_array), np.zeros(2000)])        
+        shape_circ =[self.path_radius * np.cos(theta_array), self.path_radius * np.sin(theta_array),np.zeros(2000)]
+        local_shape = R_incline @ shape_circ
+        
+        self.global_path_array[:, 0] = self.path_center[0] + local_shape[0,:]
+        self.global_path_array[:, 1] = self.path_center[1] + local_shape[1,:] 
+        self.global_path_array[:, 2] = self.path_center[2] + local_shape[2,:]
         self.model = FixedWingModel()
-        self.mpc = FixedWingMPC(self.model, N=40, Tf=2.0,trackingAttitude=False)
-        self.safetyfilter= CBFSafetyFilter(v_min = 12.0, lambda_cbf=2.0, t_max=self.model.max_thrust_acc,t_min=0.0)
-        self.dt = self.mpc.Tf / self.mpc.N
+        self.nx = 8
+        self.nu = 3
+
+        self.cbf_filter = CBFSafetyFilter(self.model, N=self.N_horizon, Ts=self.Ts, 
+                **self.filter_params_hocbf) if self.filter_mode == "HOCBF" else \
+            CompositeCBFSafetyFilter(self.model, N=self.N_horizon, Ts=self.Ts,
+                **self.filter_params_composite) if self.filter_mode == "composite" else None
+
+        self.get_logger().info("initializing mpc solver for indi position tracking")
+        self.mpc = FixedWingMPC( self.model, N=self.N_horizon, Ts=self.Ts, x0_init=np.zeros(self.nx),
+            cbf_filter=self.cbf_filter if includeCBF else None,
+            trackingAttitude=False)
         
-        # preallocate buffers
-        self.model = FixedWingModel()
-        self.nx = self.model.get_acados_model().x.size()[0]
+        # vehicle state in enu
+        self.pos_enu = np.zeros(3)
+        self.vel_enu = np.zeros(3)
+        self.acc_enu = np.zeros(3)
+        self.q_enu = np.array([1.0, 0.0, 0.0, 0.0])
         
-        self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
-        self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
-        self.vehicle_local_velocity = np.array([0.0, 0.0, 0.0])
-        
-        # system state
+        # precomputed matrices to save loop time
+        self.R_flu_to_enu = np.eye(3)
+        self.R_enu_to_flu = np.eye(3)
+
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
-        self.timer = self.create_timer(0.02, self.cmdloop_callback) # 50Hz Loop
-
-        # check if the vehicle has received valid state messages
         self.received_pos = False
-        self.received_attitude=False
-        self.mpc_initialized = False
+        self.received_att = False
+        self.sim_step = 0 # just for the visualization updates
+        self.last_valid_x_pred = None
+        self.last_px4_timestamp = 0
+
+        self._publish_global_orbit_path()
+        self.timer = self.create_timer(self.Ts, self.control_loop)
+
+    # px4 to mpc and indi frame
+    def _ned_to_enu(self, v):
+        return np.array([v[1], v[0], -v[2]])
+
+    # from indi frame back to px4 frame
+    def _enu_to_ned(self, v):
+        return np.array([v[1], v[0], -v[2]])
+
+    # return normalized quaternion product of two quaternions
+    def _quat_mul(self, q1, q2):
+        w1, x1, y1, z1 = q1
+        w2, x2, y2, z2 = q2
+        q_prod = np.array([
+            w1*w2 - x1*x2 - y1*y2 - z1*z2,
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2
+        ])
+        n = np.linalg.norm(q_prod)
+        return q_prod / (n+1e-6)
+
+    def _quat_to_rotmat(self, q):
+        w, x, y, z = q
+        return np.array([
+            [1 - 2*(y*y + z*z),  2*(x*y - z*w),      2*(x*z + y*w)],
+            [2*(x*y + z*w),      1 - 2*(x*x + z*z),  2*(y*z - x*w)],
+            [2*(x*z - y*w),      2*(y*z + x*w),      1 - 2*(x*x + y*y)]
+        ])
+
+    def _correct_ekf_yaw_drift(self, q_enu, vel_enu, speed):
+        # replaces drifting ekf yaw with kinematic course over ground
+        w, x, y, z = q_enu
+        # extract just the roll and pitch from the quaternion, then recombine with a new yaw
+        roll = np.arctan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x**2 + y**2))
+        pitch = np.arcsin(np.clip(2.0 * (w * y - z * x), -1.0, 1.0))
+        
+        if speed > 2.0:
+            yaw = np.arctan2(vel_enu[1], vel_enu[0])
+        else:
+            yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y**2 + z**2))
+
+        cy, sy = np.cos(yaw * 0.5), np.sin(yaw * 0.5)
+        cp, sp = np.cos(pitch * 0.5), np.sin(pitch * 0.5)
+        cr, sr = np.cos(roll * 0.5), np.sin(roll * 0.5)
+
+        q_new = np.array([
+            cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy
+        ])
+        return q_new if q_new[0] >= 0.0 else -q_new
 
     def vehicle_status_callback(self, msg):
         self.nav_state = msg.nav_state
+        self.last_px4_timestamp = msg.timestamp
     
     def vehicle_attitude_callback(self, msg):
-        """update local attitude from msg. NED (qw,qx,qy,qz) -> ENU"""
-        q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
-        self.vehicle_attitude[:] = q_enu / np.linalg.norm(q_enu) # normalize and assign in-place as float
-        self.received_attitude=True
+        # save normalize quaternion (w,x,y,z) from px4, ned frame
+        q_raw_ned = np.array([msg.q[0], msg.q[1], msg.q[2], msg.q[3]])
+        n_raw = np.linalg.norm(q_raw_ned)
+        if n_raw < 1e-6:
+            return
+        q_norm_ned = q_raw_ned / n_raw
         
-    def vehicle_local_position_callback(self, msg):
-        """update local state from msg. NED → ENU (In-place assignment)"""
-        self.vehicle_local_position[:] = [msg.y, msg.x, -msg.z]
-        self.vehicle_local_velocity[:] = [msg.vy, msg.vx, -msg.vz]
-        self.received_pos=True
-
-    def compute_vehicle_cmd(self,u_pred,speed):
-        """compute and return control outputs to PX4"""
-        thrust_cmd_raw, lift_cmd, roll_rate_cmd = u_pred[0]
-        # extract pitch & yaw rates from gravity vector in body frame
-        # quat: (w x y z), ENU
-        R_mat = self.quat_to_rot_matrix(self.vehicle_attitude)
-        g_enu = np.array([0.0, 0.0, -9.81])
-        g_body = R_mat.T @ g_enu
-        
-        speed_safe = max(speed, self.speed_min) # div0
-        pitch_rate_cmd = -(lift_cmd + g_body[2]) / speed_safe 
-        yaw_rate_cmd   = (g_body[1]) / speed_safe
-
-        setpoint_msg = VehicleRatesSetpoint()
-        setpoint_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-        setpoint_msg.roll  = float(roll_rate_cmd)
-        setpoint_msg.pitch = float(-pitch_rate_cmd) 
-        setpoint_msg.yaw   = float(-yaw_rate_cmd)
-        
-        # just find what PX4 expects for thrust and scale it down to [0,1]
-        normalized_throttle = max(0.0, min(thrust_cmd_raw/1.079,1.0))
-        print(f"cmd rates: thrust: {normalized_throttle:.3f} | speed: {speed:.2f}\n| roll rate: {roll_rate_cmd:.2f}| pitch rate:{pitch_rate_cmd:.2f} | yaw rate: {yaw_rate_cmd:.2f}")
-        setpoint_msg.thrust_body[:] = [float(normalized_throttle), 0.0, 0.0]
-        
-        return setpoint_msg
-
-    # ---------- main loop ----------- 
-    def cmdloop_callback(self):
-            # Maintain Offboard Heartbeat
-            offboard_msg = OffboardControlMode()
-            offboard_msg.timestamp = int(Clock().now().nanoseconds / 1000)
-            offboard_msg.position = False
-            offboard_msg.velocity = False
-            offboard_msg.acceleration = False
-            offboard_msg.attitude = False
-            offboard_msg.body_rate = True
-            self.publisher_offboard_mode.publish(offboard_msg)
+        # ned to enu for indi controller
+        q_unnorm = (1.0 / np.sqrt(2.0)) * np.array([
+            q_norm_ned[0] + q_norm_ned[3],
+            q_norm_ned[1] + q_norm_ned[2],
+            q_norm_ned[1] - q_norm_ned[2],
+            q_norm_ned[0] - q_norm_ned[3]
+        ])
+        n = np.linalg.norm(q_unnorm)
+        if n > 1e-6:
+            self.q_enu = q_unnorm / n
+            # precompute matrices for use in control loop
+            self.R_flu_to_enu = self._quat_to_rotmat(self.q_enu)
+            self.R_enu_to_flu = self.R_flu_to_enu.T
+            self.received_att = True
             
-            # skip the rest if we cant get the state initialized
-            if not (self.received_pos and self.received_attitude):
-                return
-            # update solver to initialize at current state
-            speed = np.linalg.norm(self.vehicle_local_velocity)
-            self.speed_min = 0.10 if speed > 0.5 else 0.0
-            x0= np.concatenate((self.vehicle_local_position, [max(speed, self.speed_min)], self.vehicle_attitude))
-            
-            # runs in first iteration of cmd loop OR restarting mpc
-            # TODO? set mpc_initialized = false when we stop the node (and plan to allow restart?)
-            if not self.mpc_initialized:
-                self.get_logger().info(f"Initializing Acados Solver at Speed: {x0[3]:.1f} m/s")
-                self.mpc = FixedWingMPC(self.model, x0, N=40, Tf=2.0)
-                self.dt = self.mpc.Tf / self.mpc.N
-                self.mpc_initialized = True
+        self.last_px4_timestamp = msg.timestamp
     
-            yref_traj = self.generate_reference_trajectory()
-            x_pred=None
-            u_pred=None
-            # extract controls and publish if offboard mode on
-            if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:   
-                # generate and solve over horizon
-                u_pred, x_pred = self.mpc.solve(x0, yref_traj)
-                # u_safe = self.safetyfilter.filter_airspeed(u_pred,x0[3],x0[4:8])
-                # calculate and publish control outputs
-                setpoint_msg = self.compute_vehicle_cmd(u_pred,speed)
-                self.publisher_rates_setpoint.publish(setpoint_msg)
+    def vehicle_local_position_callback(self, msg):
+        if not (np.isfinite(msg.x) and np.isfinite(msg.y) and np.isfinite(msg.z)):
+            return
             
-            # publish visualizations
-            # self.publish_visuals(x_pred)
-            self.publish_diagnostics(x_pred,u_pred, yref_traj,speed)
-
-    def publish_diagnostics(self, x_pred, u_pred, yref_traj, speed):
-        stamp = self.get_clock().now().to_msg()
+        self.pos_enu = self._ned_to_enu([msg.x, msg.y, msg.z])
+        self.vel_enu = self._ned_to_enu([msg.vx, msg.vy, msg.vz])
+        self.current_speed = np.linalg.norm(self.vel_enu)
         
-        # 1. Publish Optimal Trajectory Array (For fw_viz.py)
-        if x_pred is not None:
-            array_msg = Float64MultiArray()
-            array_msg.data = x_pred.flatten().tolist()
-            self.optimal_path_raw_pub.publish(array_msg)
+        if hasattr(msg, 'ax') and np.isfinite(msg.ax):
+            self.acc_enu = self._ned_to_enu([msg.ax, msg.ay, msg.az])
             
-        # 2. Publish Tracking Error (Actual Position - Target Reference Point)
-        # Using PointStamped simply as a container for 3 variables (X, Y, Z error)
+        self.received_pos = True
+        self.last_px4_timestamp = msg.timestamp
+    # for visualization
+    def _publish_global_orbit_path(self):
+        path_msg = Path()
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+        path_msg.header.frame_id = 'map'
+        
+        # slice the precomputed array, stepping by 10 so we only send 100 points to rviz
+        for pt in self.global_path_array[::10]:
+            p = PoseStamped()
+            p.header.frame_id = 'map'
+            p.pose.position.x = float(pt[0])
+            p.pose.position.y = float(pt[1])
+            p.pose.position.z = float(pt[2])
+            p.pose.orientation.w = 1.0
+            path_msg.poses.append(p)
+            
+        self.global_ref_path_pub.publish(path_msg)
+
+    def generate_reference_trajectory(self, global_path_array):
+        yref = np.zeros((self.N_horizon + 1, self.nx))
+        # lookahead window
+        search_window = 300
+        n_points = len(global_path_array)
+        # grab subset of indices ahead of last position
+        idx_array = (self.path_idx + np.arange(search_window)) % n_points
+        window_pts = global_path_array[idx_array]
+        # find how far plane is from every point in local window
+        dists = np.linalg.norm(window_pts - self.pos_enu, axis=1)
+        # lock closest point and advance fwd
+        self.path_idx = idx_array[np.argmin(dists)]
+        curr_idx = self.path_idx
+        # pacing btwn points for the reference
+        track_pace = max(self.current_speed, self.v_min)
+        step_dist = track_pace * self.Ts
+        
+        yref[0, 0:3] = global_path_array[curr_idx]
+        yref[0, 4] = 1.0
+        
+        search_idx = curr_idx
+        # iterate through path array
+        for i in range(1, self.N_horizon + 1):
+            accumulated = 0.0
+            # sample points, spaced out by track pace
+            while accumulated < step_dist:
+                next_idx = (search_idx + 1) % n_points
+                pt1 = global_path_array[search_idx]
+                pt2 = global_path_array[next_idx]
+                accumulated += np.linalg.norm(pt2 - pt1)
+                search_idx = next_idx
+                
+            yref[i, 0:3] = global_path_array[search_idx]
+            yref[i, 4] = 1.0 
+            
+        return yref
+
+    def control_loop(self):
+        if not (self.received_pos and self.received_att):
+            return
+
+        timestamp = int(self.last_px4_timestamp) if self.last_px4_timestamp > 0 else int(Clock().now().nanoseconds / 1000)
+
+        # safe_speed = max(float(self.current_speed), 1e-6)
+        
+        q_corrected = self._correct_ekf_yaw_drift(self.q_enu, self.vel_enu, self.current_speed)
+        x0 = np.concatenate([self.pos_enu, [float(self.current_speed)], q_corrected])
+
+        yref = self.generate_reference_trajectory(self.global_path_array)
+        u_pred, x_pred, mpc_status = self.mpc.solve(x0, yref)
+
+        is_x_pred_valid = (x_pred is not None) and np.all(np.isfinite(x_pred))
+        is_u_pred_valid = (u_pred is not None) and np.all(np.isfinite(u_pred))
+        solver_failed = (mpc_status != 0) or (not is_x_pred_valid) or (not is_u_pred_valid)
+
+        # grab the prediction for visualization even if status is bad as long as it isnt nans
+        if is_x_pred_valid:
+            self.last_valid_x_pred = x_pred.copy()
+            viz_x_pred = x_pred
+        elif self.last_valid_x_pred is not None:
+            viz_x_pred = self.last_valid_x_pred.copy()
+        else:
+            viz_x_pred = yref[:, :self.nx].copy()
+
+        # default diagnostic variables for the cbf
+        shield_tripped = False
+        penalty = 0.0
+        cbf_status = 0
+
+        if is_u_pred_valid and not solver_failed:
+            if self.cbf_filter is not None:
+                u_safe_seq, shield_tripped, penalty, diag = self.cbf_filter.filter(x0, u_pred, self.sim_step)
+                u_act = u_safe_seq[0, :]
+                
+                # unpack diagnostic dict if the cbf solver threw an error
+                if diag is not None:
+                    cbf_status = diag.get('status_code', -1)
+                
+                if shield_tripped: 
+                    # roll out the safe controls to generate the true safe attitudes for the setpoints
+                    u_for_rollout = u_safe_seq[:self.cbf_filter.K,:].T
+                    safe_x_dm = self.cbf_filter._rollout_func(x0, u_for_rollout)
+                    
+                    # overwrite the mpc prediction with safe rollout
+                    safe_x_np = np.array(safe_x_dm).T
+                    viz_x_pred[:self.cbf_filter.K + 1, :] = safe_x_np
+                    
+                    if self.sim_step % 10 == 0:
+                        if cbf_status != 0:
+                            self.get_logger().error(f"CBF shield fail: status {cbf_status}! Run fallback option")
+            else:
+                u_act = u_pred[0, :]
+        else:
+            u_act = np.array([0.0, self.model.gravity, 0.0])
+            if self.sim_step % 10 == 0:
+                self.get_logger().error(f"MPC fail: status {mpc_status}. Run fallback option")
+                
+        self.sim_step += 1 # just for the visualization updates
+        
+        is_offboard = (self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD)
+
+        # publish complete diagnostic profile
+        self.publish_diagnostics(viz_x_pred, u_act, yref, x0, mpc_status, solver_failed, is_offboard, shield_tripped, penalty, cbf_status)
+        
+        if self.sim_step % 10 == 0:
+            self._publish_global_orbit_path()
+
+        if not is_offboard or solver_failed:
+            return
+
+        self.publish_control_traj_setpoint(u_act, viz_x_pred, timestamp)
+        self.publish_control_body(u_act, viz_x_pred, timestamp)
+
+    def publish_control_traj_setpoint(self, u_act, x_pred, timestamp):
+        fxw_cmd = np.clip(float(u_act[0]), self.model.min_fxw, self.model.max_fxw)
+        fzw_cmd = np.clip(float(u_act[1]), self.model.min_fzw, self.model.max_fzw)
+
+        q_target_enu = x_pred[1, 4:8]
+        speed_planned = max(float(x_pred[1, 3]), self.v_min)
+        R_target = self._quat_to_rotmat(q_target_enu)
+
+        # map specific force to enu frame
+        f_w_body = np.array([fxw_cmd, 0.0, fzw_cmd])
+        f_aero_enu = R_target @ f_w_body
+        
+        # kin accel = specific force + gravity vector
+        acc_kinematic_enu = f_aero_enu + np.array([0.0, 0.0, -self.model.gravity])
+
+        v_body_dir = np.array([1.0, 0.0, 0.0])
+        vel_ref_enu = speed_planned * (R_target @ v_body_dir)
+
+        # map enu to px4 ned
+        acc_ned = self._enu_to_ned(acc_kinematic_enu)
+        vel_ned = self._enu_to_ned(vel_ref_enu)
+
+        traj_msg = TrajectorySetpoint()
+        traj_msg.timestamp = timestamp
+        traj_msg.acceleration = [float(acc_ned[0]), float(acc_ned[1]), float(acc_ned[2])]
+        traj_msg.velocity = [float(vel_ned[0]), float(vel_ned[1]), float(vel_ned[2])]
+        self.pub_traj_setpoint.publish(traj_msg)
+        
+    def publish_control_body(self, u_act, x_pred, timestamp):
+        fxw_cmd = np.clip(float(u_act[0]), self.model.min_fxw, self.model.max_fxw)
+        roll_rate_cmd = np.clip(float(u_act[2]), -self.model.max_roll_rate, self.model.max_roll_rate)
+
+        # extract forward finite difference of planned quaternions
+        q0 = x_pred[0, 4:8]
+        q1 = x_pred[1, 4:8]
+        q0_inv = np.array([q0[0], -q0[1], -q0[2], -q0[3]])
+        
+        q_diff = self._quat_mul(q0_inv, q1)
+        if q_diff[0] < 0.0:
+            q_diff = -q_diff
+            
+        # map angular velocity from enu rotation to body rates
+        omega_enu = (2.0 / self.Ts) * q_diff[1:4]
+        pitch_rate_cmd = float(-omega_enu[1])
+        yaw_rate_cmd = float(-omega_enu[2])
+        throttle_offset = 0.3
+        throttle_cmd = np.clip( throttle_offset+ (1-throttle_offset)* fxw_cmd / self.model.max_fxw, 0.0, 1.0)
+        
+        rates_msg = VehicleRatesSetpoint()
+        rates_msg.timestamp = timestamp
+        rates_msg.roll = float(roll_rate_cmd)
+        rates_msg.pitch = pitch_rate_cmd
+        rates_msg.yaw = yaw_rate_cmd
+        rates_msg.thrust_body = [float(throttle_cmd), 0.0, 0.0]
+        self.pub_rates_setpoint.publish(rates_msg)
+
+    def publish_diagnostics(self, x_pred, u_act, yref, x0, mpc_status, solver_failed, is_offboard, shield_tripped, penalty, cbf_status):
+        stamp = self.get_clock().now().to_msg()
+
+        array_msg = Float64MultiArray()
+        array_msg.data = x_pred.flatten().tolist()
+        self.optimal_path_raw_pub.publish(array_msg)
+
+        actual_pt = PointStamped()
+        actual_pt.header.stamp = stamp
+        actual_pt.header.frame_id = 'map'
+        actual_pt.point.x = float(self.pos_enu[0])
+        actual_pt.point.y = float(self.pos_enu[1])
+        actual_pt.point.z = float(self.pos_enu[2])
+        self.plane_actual_pos_pub.publish(actual_pt)
+
+        solver_pt = PointStamped()
+        solver_pt.header.stamp = stamp
+        solver_pt.header.frame_id = 'map'
+        solver_pt.point.x = float(x0[0])
+        solver_pt.point.y = float(x0[1])
+        solver_pt.point.z = float(x0[2])
+        self.solver_state_pos_pub.publish(solver_pt)
+
         err_msg = PointStamped()
         err_msg.header.stamp = stamp
-        err_msg.point.x = float(self.vehicle_local_position[0] - yref_traj[0, 0])
-        err_msg.point.y = float(self.vehicle_local_position[1] - yref_traj[0, 1])
-        err_msg.point.z = float(self.vehicle_local_position[2] - yref_traj[0, 2])
+        err_msg.header.frame_id = 'map'
+        err_msg.point.x = float(self.pos_enu[0] - yref[0, 0])
+        err_msg.point.y = float(self.pos_enu[1] - yref[0, 1])
+        err_msg.point.z = float(self.pos_enu[2] - yref[0, 2])
         self.error_pub.publish(err_msg)
 
-        # 3. Publish Control Effort (Thrust, Lift, Roll Rate)
-        if u_pred is not None:
-            effort_msg = PointStamped()
-            effort_msg.header.stamp = stamp
-            effort_msg.point.x = float(u_pred[0][0]) # Thrust
-            effort_msg.point.y = float(u_pred[0][1]) # Lift
-            effort_msg.point.z = float(u_pred[0][2]) # Roll rate
-            self.effort_pub.publish(effort_msg)
+        effort_msg = PointStamped()
+        effort_msg.header.stamp = stamp
+        effort_msg.header.frame_id = 'base_link'
+        effort_msg.point.x = float(u_act[0])
+        effort_msg.point.y = float(u_act[1])
+        effort_msg.point.z = float(u_act[2])
+        self.effort_pub.publish(effort_msg)
 
-        # 4. Publish Speeds (Actual vs Target)
-        speed_msg = PointStamped()
-        speed_msg.header.stamp = stamp
-        speed_msg.point.x = float(speed)
-        speed_msg.point.y = float(self.target_speed)
-        speed_msg.point.z = 0.0 # Unused
-        self.speed_pub.publish(speed_msg)
+        status_msg = Int32()
+        status_msg.data = int(mpc_status) if mpc_status is not None else -1
+        self.solver_status_pub.publish(status_msg)
 
-    def generate_reference_trajectory(self):
-        """Generates a sliding reference for CIRCULAR path"""
-        yref_traj = np.zeros((self.mpc.N + 1, self.nx))
-        
-        # closest angle on circle rn
-        dx = self.vehicle_local_position[0] - self.path_center[0]
-        dy = self.vehicle_local_position[1] - self.path_center[1]
-        closest_angle = np.arctan2(dy, dx)
-        
-        # projection based on actual speed
-        current_speed = np.linalg.norm(self.vehicle_local_velocity)
-        safe_speed = max(current_speed, 1.0) # Prevent division by zero if stationary
-        actual_omega = safe_speed / self.path_radius 
-        
-        g = 9.81
-        # ENU; (+) omega = left turn, requires negative roll
-        bank_angle = np.arctan2(-self.target_speed*actual_omega, g)
-        
-        for i in range(self.mpc.N + 1):
-            # The reference points now march forward at the exact speed the drone is flying
-            theta = closest_angle + actual_omega * (i * self.dt)
-            
-            yref_traj[i, 0] = self.path_center[0] + self.path_radius * np.cos(theta)
-            yref_traj[i, 1] = self.path_center[1] + self.path_radius * np.sin(theta)
-            yref_traj[i, 2] = self.path_center[2]
-            yref_traj[i, 3] = self.target_speed # Still tell it we WANT to fly at 15 m/s
-            
-            # tangent to heading
-            psi = theta + (np.pi / 2.0)
-            
-            # quaternions for if i am weighting attitude too
-            cy = np.cos(psi * 0.5)
-            sy = np.sin(psi * 0.5)
-            cp = np.cos(0.0) 
-            sp = np.sin(0.0)
-            cr = np.cos(bank_angle * 0.5)
-            sr = np.sin(bank_angle * 0.5)
-            
-            yref_traj[i, 4] = cr * cp * cy + sr * sp * sy
-            yref_traj[i, 5] = sr * cp * cy - cr * sp * sy
-            yref_traj[i, 6] = cr * sp * cy + sr * cp * sy
-            yref_traj[i, 7] = cr * cp * sy - sr * sp * cy
-        
-        return yref_traj
-    # Helper functions for quaternion operations
-    def quat_multiply(self, q1, q2):
-        """multiply two wxyz quaternions"""
-        w1, x1, y1, z1 = q1 # unpack sequence
-        w2, x2, y2, z2 = q2
-        w = w1*w2 - x1*x2 - y1*y2 - z1*z2
-        x = w1*x2 + x1*w2 + y1*z2 - z1*y2
-        y = w1*y2 - x1*z2 + y1*w2 + z1*x2
-        z = w1*z2 + x1*y2 - y1*x2 + z1*w2
-        return np.array([w, x, y, z])
+        fail_msg = Int32()
+        fail_msg.data = 1 if solver_failed else 0
+        self.solver_fail_pub.publish(fail_msg)
 
-    def quat_to_rot_matrix(self, q):
-        """return SO(3) rot matrix from wxyz quaternion """
-        w, x, y, z = q
-        return np.array([
-            [1 - 2*(y**2 + z**2), 2*(x*y - w*z), 2*(x*z + w*y)],
-            [2*(x*y + w*z), 1 - 2*(x**2 + z**2), 2*(y*z - w*x)],
-            [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x**2 + y**2)]
-        ])
+        offboard_msg = Int32()
+        offboard_msg.data = 1 if is_offboard else 0
+        self.detect_offboard_pub.publish(offboard_msg)
+
+        # log the safety filter diagnostics
+        tripped_msg = Int32()
+        tripped_msg.data = 1 if shield_tripped else 0
+        self.cbf_tripped_pub.publish(tripped_msg)
+        
+        pen_msg = Float32()
+        pen_msg.data = float(penalty)
+        self.cbf_penalty_pub.publish(pen_msg)
+        
+        cbf_stat_msg = Int32()
+        cbf_stat_msg.data = int(cbf_status)
+        self.cbf_status_pub.publish(cbf_stat_msg)
+
+        # desired wind forces directly from mpc
+        desired_msg = PointStamped()
+        desired_msg.header.stamp = stamp
+        desired_msg.header.frame_id = 'base_link'
+        desired_msg.point.x = float(u_act[0]) 
+        desired_msg.point.y = 0.0             
+        desired_msg.point.z = float(u_act[1]) 
+        self.f_w_flu_desired_pub.publish(desired_msg)
+
+        # compute achieved wind forces from kinematics mapped to flu
+        f_aero_enu = self.acc_enu - np.array([0.0, 0.0, -self.model.gravity])
+        f_w_flu = self.R_enu_to_flu @ f_aero_enu
+
+        achieved_msg = PointStamped()
+        achieved_msg.header.stamp = stamp
+        achieved_msg.header.frame_id = 'base_link'
+        achieved_msg.point.x = float(f_w_flu[0]) 
+        achieved_msg.point.y = float(f_w_flu[1]) 
+        achieved_msg.point.z = float(f_w_flu[2]) 
+        self.f_w_flu_achieved_pub.publish(achieved_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    fixedwing_mpc_node = FixedWingMPCNode()
-    rclpy.spin(fixedwing_mpc_node)
-    fixedwing_mpc_node.destroy_node()
-    rclpy.shutdown()
+    node = FixedWingMPCNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

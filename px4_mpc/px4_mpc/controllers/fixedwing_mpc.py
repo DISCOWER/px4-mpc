@@ -3,14 +3,14 @@ import casadi as cs
 import os
 
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
-from models.fixedwing_model import FixedWingModel
+# from models.fixedwing_model import FixedWingModel
 
 class FixedWingMPC:
-    def __init__(self, model: FixedWingModel,cbf_filter=None, x0_init = None, N=40, Ts=.05,trackingAttitude=False):
+    def __init__(self, model,cbf_filter=None, x0_init = None, N=40, Ts=.05,trackingAttitude=False):
         self.N = N
         self.Ts = Ts
         self.Tf = N*Ts
-        self.model = model # this is an instance of FixedwingModel, not the AcadosModel
+        self.model = model # this is an instance of FixedWingModel, not the AcadosModel
         self.acados_model = self.model.get_acados_model()
         self.nx = self.model.get_acados_model().x.size()[0] # 8
         self.nu = self.model.get_acados_model().u.size()[0] # 3
@@ -47,16 +47,17 @@ class FixedWingMPC:
         # TODO: change to cs.diag(SX([elements]))
         # big number look bad, but technically still take the same fp64 / IEE 754? standard
         Q_all = np.diag([1e3, 1e3, 2e3, 10.0, 50.0, 50.0, 50.0, 50.0])
-        Q_pos = np.diag([5e2, 5e2, 1e3, 0.0, 0, 0, 0, 0])
+        Q_pos = np.diag([5e2, 5e2, 4e3, 0.0, 0, 0, 0, 0])
         Q_mat = Q_all if trackingAttitude else Q_pos
         # u: [thrust, lift, roll_rate]
-        R_mat = np.diag([5e2, 5e2, 2e4])    # Control effort penalties
+        # R_mat = np.diag([5e2, 5e2, 2e4])    # Control effort penalties
+        R_mat = np.diag([1e2, 1e2, 2e4])    # Control effort penalties
         # weights in a block diagonal matrix
         ocp.cost.W = np.block([ [Q_mat, np.zeros((Q_mat.shape[0], R_mat.shape[1]))],
                                 [np.zeros((R_mat.shape[0], Q_mat.shape[1])), R_mat] ])
         # TODO: add different terminal cost weights for better convergence
         Q_e = None
-        # Q_e = np.diag([1e3, 1e3, 1e3, 0.0, 0.0, 0.0, 0.0, 0.0])
+        # Q_e = np.diag([1e3, 1e3, 2e3, 0.0, 0.0, 0.0, 0.0, 0.0])
         ocp.cost.W_e = Q_mat if Q_e is None else Q_e
         
         ocp.cost.cost_type = 'NONLINEAR_LS'
@@ -186,6 +187,13 @@ class FixedWingMPC:
                 print(f"\t\tquaternion check: {np.linalg.norm(worst_x[4:8])}")
                 print(f"   Target reference:     {np.round(worst_target, 3)}")
                 print("-" * 50)
+            
+            # reset the solver with a fallback control input (hover/flight) to avoid endless solver fail
+            u_fallback = np.array([0.0, 9.81, 0.0])
+            for i in range(self.N + 1):
+                ocp_solver.set(i, "x", x0)
+                if i < self.N:
+                    ocp_solver.set(i, "u", u_fallback)
         simX = np.zeros((self.N+1, self.nx))
         simU = np.zeros((self.N, self.nu))
 
