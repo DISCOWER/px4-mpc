@@ -11,6 +11,7 @@ from std_msgs.msg import Float64MultiArray, Int32, Float32
 
 from px4_msgs.msg import VehicleStatus, VehicleAttitude, VehicleLocalPosition
 from px4_msgs.msg import VehicleRatesSetpoint, TrajectorySetpoint
+from px4_msgs.msg import SensorCombined
 
 from px4_mpc.models.fixedwing_model import FixedWingModel
 from px4_mpc.controllers.fixedwing_mpc import FixedWingMPC
@@ -29,7 +30,7 @@ class FixedWingMPCNode(Node):
         self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status_v1', self.vehicle_status_callback, qos_sub)
         self.create_subscription(VehicleAttitude, '/fmu/out/vehicle_attitude', self.vehicle_attitude_callback, qos_sub)
         self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.vehicle_local_position_callback, qos_sub)
-
+        self.create_subscription(SensorCombined, '/fmu/out/sensor_combined', self.imu_callback, qos_sub)
         # control publishers
         self.pub_traj_setpoint = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_pub)
         self.pub_rates_setpoint = self.create_publisher(VehicleRatesSetpoint, '/fmu/in/vehicle_rates_setpoint', qos_pub)
@@ -67,17 +68,20 @@ class FixedWingMPCNode(Node):
         self.N_repair = 30
         self.filter_mode ="HOCBF" # "HOCBF" or "composite" or None
         self.filter_params_hocbf = {
-            "filter_mode": self.filter_mode,
+            "filter_mode": "HOCBF", # "FIRST_ORDER", "HOCBF", "THIRD_ORDER"
+            # THIRD_ORDER is experimental, not fully fleshed out
             "solver_mode": "custom", # acados or (hocbf only) "custom"
             "repair_horizon": self.N_repair,
             "vmin": self.v_min,
             "gamma2": 1.0,
             "gamma1": 1.0,
-            "beta": 8.5,
-            "max_iters": 8
+            "beta": 8.5, # only used for custom
+            "max_iters": 8, # only used for custom
+            "CT_or_DT": "DT",
+            "gamma3": 1.0, # only used for 3rd order
         }
         self.filter_params_composite = {
-            "solver_mode": "acados", # acados or (hocbf only) "custom"
+            "solver_mode": "acados",
             "vmin": self.v_min,
             "zmin": self.z_min,
             "repair_horizon": self.N_repair,
@@ -104,18 +108,21 @@ class FixedWingMPCNode(Node):
             [0.0, 1.0, 0.0],
             [-np.sin(angle_incline), 0.0, np.cos(angle_incline)]
         ])
-        # rounded rectangle
+        # trajectory shapes
+        shape_circ = [self.path_radius * np.cos(theta_array), self.path_radius * np.sin(theta_array),np.zeros(2000)]
+        
         rect_L = 100.0; rect_W = 40.0
         p = 4.0  # the "roundness" knob. 2.0 = exact ellipse, 4.0 = rounded rectangle, 15.0+ = razor sharp
         rect_r = 1.0 / ((np.abs(np.cos(theta_array)) / rect_L)**p + (np.abs(np.sin(theta_array)) / rect_W)**p)**(1.0 / p)
+        shape_rect = [rect_r * np.cos(theta_array), rect_r * np.sin(theta_array), np.zeros(2000)]
         
-        shape_rect = np.array([rect_r * np.cos(theta_array), rect_r * np.sin(theta_array), np.zeros(2000)])        
-        shape_circ =[self.path_radius * np.cos(theta_array), self.path_radius * np.sin(theta_array),np.zeros(2000)]
+        # apply rotation for incline then move its center to desired location
         local_shape = R_incline @ shape_circ
         
         self.global_path_array[:, 0] = self.path_center[0] + local_shape[0,:]
         self.global_path_array[:, 1] = self.path_center[1] + local_shape[1,:] 
         self.global_path_array[:, 2] = self.path_center[2] + local_shape[2,:]
+        
         self.model = FixedWingModel()
         self.nx = 8
         self.nu = 3
@@ -180,9 +187,15 @@ class FixedWingMPCNode(Node):
         ])
 
     def _correct_ekf_yaw_drift(self, q_enu, vel_enu, speed):
+        """
+        PX4 simulation's attitude/orientation sometimes accumulates a severe drift in yaw.
+        correct by:
+        1. extracting roll and pitch
+        2. use XY velocity vector to get geometric heading to replace yaw
+        """
         # replaces drifting ekf yaw with kinematic course over ground
         w, x, y, z = q_enu
-        # extract just the roll and pitch from the quaternion, then recombine with a new yaw
+        # extract roll and pitch from drifting quaternion
         roll = np.arctan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x**2 + y**2))
         pitch = np.arcsin(np.clip(2.0 * (w * y - z * x), -1.0, 1.0))
         
@@ -191,36 +204,40 @@ class FixedWingMPCNode(Node):
         else:
             yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y**2 + z**2))
 
-        cy, sy = np.cos(yaw * 0.5), np.sin(yaw * 0.5)
-        cp, sp = np.cos(pitch * 0.5), np.sin(pitch * 0.5)
-        cr, sr = np.cos(roll * 0.5), np.sin(roll * 0.5)
+        # individual rot quaternions for roll, pitch, yaw
+        q_yaw   = np.array([np.cos(yaw   * 0.5), 0.0,                 0.0, np.sin(yaw * 0.5)])
+        q_pitch = np.array([np.cos(pitch * 0.5), 0.0, np.sin(pitch * 0.5), 0.0])
+        q_roll  = np.array([np.cos(roll  * 0.5), np.sin(roll * 0.5),  0.0, 0.0])
 
-        q_new = np.array([
-            cr * cp * cy + sr * sp * sy,
-            sr * cp * cy - cr * sp * sy,
-            cr * sp * cy + sr * cp * sy,
-            cr * cp * sy - sr * sp * cy
-        ])
-        return q_new if q_new[0] >= 0.0 else -q_new
+        # recombine rpy rotation quats (Standard ZYX sequence: q = q_yaw * q_pitch * q_roll)
+        # _quat_mul automatically normalizes
+        q_pitch_roll = self._quat_mul(q_pitch, q_roll)
+        q_new = self._quat_mul(q_yaw, q_pitch_roll)
+        # enforce continuity and ensure same hemisphere as previous quaternion
+        return -q_new if np.dot(self.q_enu, q_new) < 0.0 else q_new
 
     def vehicle_status_callback(self, msg):
         self.nav_state = msg.nav_state
         self.last_px4_timestamp = msg.timestamp
     
     def vehicle_attitude_callback(self, msg):
+        """
+        process px4 attitude; convert from NED ⇒ ENU 
+        """
         # save normalize quaternion (w,x,y,z) from px4, ned frame
         q_raw_ned = np.array([msg.q[0], msg.q[1], msg.q[2], msg.q[3]])
         n_raw = np.linalg.norm(q_raw_ned)
-        if n_raw < 1e-6:
-            return
+        if n_raw < 1e-6: 
+            return # reject flawed ones
         q_norm_ned = q_raw_ned / n_raw
         
-        # ned to enu for indi controller
+        # unnormalized quat for ned to enu for indi controller
+        # x_enu = y_ned, y_enu = x_ned, z_enu = -z_ned
         q_unnorm = (1.0 / np.sqrt(2.0)) * np.array([
-            q_norm_ned[0] + q_norm_ned[3],
-            q_norm_ned[1] + q_norm_ned[2],
-            q_norm_ned[1] - q_norm_ned[2],
-            q_norm_ned[0] - q_norm_ned[3]
+            q_norm_ned[0] + q_norm_ned[3], # w_enu
+            q_norm_ned[1] + q_norm_ned[2], # x_enu
+            q_norm_ned[1] - q_norm_ned[2], # y_enu
+            q_norm_ned[0] - q_norm_ned[3]  # z_enu
         ])
         n = np.linalg.norm(q_unnorm)
         if n > 1e-6:
@@ -239,12 +256,31 @@ class FixedWingMPCNode(Node):
         self.pos_enu = self._ned_to_enu([msg.x, msg.y, msg.z])
         self.vel_enu = self._ned_to_enu([msg.vx, msg.vy, msg.vz])
         self.current_speed = np.linalg.norm(self.vel_enu)
+        # Alternative: project velocity onto thrust axis 
+        # self.current_speed = np.dot(self.vel_enu, self.R_flu_to_enu[:,0])
         
         if hasattr(msg, 'ax') and np.isfinite(msg.ax):
             self.acc_enu = self._ned_to_enu([msg.ax, msg.ay, msg.az])
             
         self.received_pos = True
         self.last_px4_timestamp = msg.timestamp
+        
+    def imu_callback(self,msg):
+        """
+        Just for comparison, not used in control:
+        Subscribe to NED accelerometer and publish in ENU
+        """
+        achieved_msg = PointStamped()
+        achieved_msg.header.stamp = self.get_clock().now().to_msg()
+        achieved_msg.header.frame_id = 'base_link'
+        
+        # Map from PX4 NED to MPC FLU (Forward-Left-Up)
+        achieved_msg.point.x = float(msg.accelerometer_m_s2[0])
+        achieved_msg.point.y = float(-msg.accelerometer_m_s2[1])
+        achieved_msg.point.z = float(-msg.accelerometer_m_s2[2])
+        
+        self.f_w_flu_achieved_pub.publish(achieved_msg)
+    
     # for visualization
     def _publish_global_orbit_path(self):
         path_msg = Path()
@@ -255,15 +291,19 @@ class FixedWingMPCNode(Node):
         for pt in self.global_path_array[::10]:
             p = PoseStamped()
             p.header.frame_id = 'map'
-            p.pose.position.x = float(pt[0])
-            p.pose.position.y = float(pt[1])
-            p.pose.position.z = float(pt[2])
+            p.pose.position.x = pt[0]
+            p.pose.position.y = pt[1]
+            p.pose.position.z = pt[2]
             p.pose.orientation.w = 1.0
             path_msg.poses.append(p)
             
         self.global_ref_path_pub.publish(path_msg)
 
     def generate_reference_trajectory(self, global_path_array):
+        """
+        Generate reference path for MPC solver starting from nearest global waypoint.
+        Points are paced based on airspeed
+        """
         yref = np.zeros((self.N_horizon + 1, self.nx))
         # lookahead window
         search_window = 300
@@ -305,13 +345,12 @@ class FixedWingMPCNode(Node):
             return
 
         timestamp = int(self.last_px4_timestamp) if self.last_px4_timestamp > 0 else int(Clock().now().nanoseconds / 1000)
-
-        # safe_speed = max(float(self.current_speed), 1e-6)
         
         q_corrected = self._correct_ekf_yaw_drift(self.q_enu, self.vel_enu, self.current_speed)
-        x0 = np.concatenate([self.pos_enu, [float(self.current_speed)], q_corrected])
+        x0 = np.concatenate([self.pos_enu, [self.current_speed], q_corrected])
 
         yref = self.generate_reference_trajectory(self.global_path_array)
+        # add a warm start
         u_pred, x_pred, mpc_status = self.mpc.solve(x0, yref)
 
         is_x_pred_valid = (x_pred is not None) and np.all(np.isfinite(x_pred))
@@ -369,7 +408,7 @@ class FixedWingMPCNode(Node):
         
         if self.sim_step % 10 == 0:
             self._publish_global_orbit_path()
-
+        # skip publishing to indi controllers
         if not is_offboard or solver_failed:
             return
 
@@ -377,59 +416,81 @@ class FixedWingMPCNode(Node):
         self.publish_control_body(u_act, viz_x_pred, timestamp)
 
     def publish_control_traj_setpoint(self, u_act, x_pred, timestamp):
-        fxw_cmd = np.clip(float(u_act[0]), self.model.min_fxw, self.model.max_fxw)
-        fzw_cmd = np.clip(float(u_act[1]), self.model.min_fzw, self.model.max_fzw)
+        """
+        Publish kinematic trajectory setpoints: publish acceleration for low-level PX4 controller in NED frame
+        Inputs: 
+        - u_act = [f_xw, f_zw, roll_rate]: control input array
+        - x_pred: planned state trajectory from MPC
+        - timestamp: current timestamp synced with PX4
+        
+        Output: None
+        - publish TrajectorySetpoint msg containing acceleration vector mapped to NED frame
+        """
+        fxw_cmd = np.clip(u_act[0], self.model.min_fxw, self.model.max_fxw)
+        fzw_cmd = np.clip(u_act[1], self.model.min_fzw, self.model.max_fzw)
 
         q_target_enu = x_pred[1, 4:8]
-        speed_planned = max(float(x_pred[1, 3]), self.v_min)
         R_target = self._quat_to_rotmat(q_target_enu)
 
         # map specific force to enu frame
         f_w_body = np.array([fxw_cmd, 0.0, fzw_cmd])
-        f_aero_enu = R_target @ f_w_body
-        
-        # kin accel = specific force + gravity vector
-        acc_kinematic_enu = f_aero_enu + np.array([0.0, 0.0, -self.model.gravity])
-
-        v_body_dir = np.array([1.0, 0.0, 0.0])
-        vel_ref_enu = speed_planned * (R_target @ v_body_dir)
-
-        # map enu to px4 ned
+        # kin accel = gravity vector + body forces rotated into ENU frame
+        acc_kinematic_enu = R_target @ f_w_body + np.array([0.0, 0.0, -self.model.gravity])
         acc_ned = self._enu_to_ned(acc_kinematic_enu)
-        vel_ned = self._enu_to_ned(vel_ref_enu)
+        
+        # same for velocity if needed
+        # speed_planned = max(x_pred[1, 3], self.v_min)
+        # v_body_dir = np.array([1.0, 0.0, 0.0])
+        # vel_ref_enu = speed_planned * (R_target @ v_body_dir)
+        # vel_ned = self._enu_to_ned(vel_ref_enu)
 
         traj_msg = TrajectorySetpoint()
         traj_msg.timestamp = timestamp
-        traj_msg.acceleration = [float(acc_ned[0]), float(acc_ned[1]), float(acc_ned[2])]
-        traj_msg.velocity = [float(vel_ned[0]), float(vel_ned[1]), float(vel_ned[2])]
+        traj_msg.acceleration = acc_ned.tolist() # built-in conversion into list of floats
+        traj_msg.velocity = [float('NaN'),float('NaN'),float('NaN')]
+        # traj_msg.velocity = vel_ned.tolist()
         self.pub_traj_setpoint.publish(traj_msg)
         
     def publish_control_body(self, u_act, x_pred, timestamp):
-        fxw_cmd = np.clip(float(u_act[0]), self.model.min_fxw, self.model.max_fxw)
-        roll_rate_cmd = np.clip(float(u_act[2]), -self.model.max_roll_rate, self.model.max_roll_rate)
+        """
+        Publish rate setpoints (roll, pitch, yaw rates) and normalized thrust in the body frame,
+        for use by inner-loop controllers in PX4.
+        
+        Inputs:
+        - u_act = [f_xw, f_zw, roll_rate]: control input array
+        - x_pred: planned state trajectory from MPC
+        - timestamp: current timestamp synced with PX4
+        
+        Output: None
+        - publish VehicleRatesSetpoint msg containing, roll, pitch, yaw rates (rad/s) and normalized thrust cmd
+        
+        """
+        fxw_cmd = np.clip(u_act[0], self.model.min_fxw, self.model.max_fxw)
+        roll_rate_cmd = np.clip(u_act[2], -self.model.max_roll_rate, self.model.max_roll_rate)
 
         # extract forward finite difference of planned quaternions
         q0 = x_pred[0, 4:8]
         q1 = x_pred[1, 4:8]
         q0_inv = np.array([q0[0], -q0[1], -q0[2], -q0[3]])
-        
+        # rotational difference between current and planned state
         q_diff = self._quat_mul(q0_inv, q1)
+        # rotate the shortest way possible
         if q_diff[0] < 0.0:
             q_diff = -q_diff
             
         # map angular velocity from enu rotation to body rates
         omega_enu = (2.0 / self.Ts) * q_diff[1:4]
-        pitch_rate_cmd = float(-omega_enu[1])
-        yaw_rate_cmd = float(-omega_enu[2])
+        pitch_rate_cmd = -omega_enu[1]
+        yaw_rate_cmd = -omega_enu[2]
         throttle_offset = 0.3
         throttle_cmd = np.clip( throttle_offset+ (1-throttle_offset)* fxw_cmd / self.model.max_fxw, 0.0, 1.0)
         
         rates_msg = VehicleRatesSetpoint()
         rates_msg.timestamp = timestamp
-        rates_msg.roll = float(roll_rate_cmd)
+        rates_msg.roll = roll_rate_cmd
         rates_msg.pitch = pitch_rate_cmd
         rates_msg.yaw = yaw_rate_cmd
-        rates_msg.thrust_body = [float(throttle_cmd), 0.0, 0.0]
+        rates_msg.thrust_body = [throttle_cmd, 0.0, 0.0]
         self.pub_rates_setpoint.publish(rates_msg)
 
     def publish_diagnostics(self, x_pred, u_act, yref, x0, mpc_status, solver_failed, is_offboard, shield_tripped, penalty, cbf_status):
@@ -442,33 +503,33 @@ class FixedWingMPCNode(Node):
         actual_pt = PointStamped()
         actual_pt.header.stamp = stamp
         actual_pt.header.frame_id = 'map'
-        actual_pt.point.x = float(self.pos_enu[0])
-        actual_pt.point.y = float(self.pos_enu[1])
-        actual_pt.point.z = float(self.pos_enu[2])
+        actual_pt.point.x = self.pos_enu[0]
+        actual_pt.point.y = self.pos_enu[1]
+        actual_pt.point.z = self.pos_enu[2]
         self.plane_actual_pos_pub.publish(actual_pt)
 
         solver_pt = PointStamped()
         solver_pt.header.stamp = stamp
         solver_pt.header.frame_id = 'map'
-        solver_pt.point.x = float(x0[0])
-        solver_pt.point.y = float(x0[1])
-        solver_pt.point.z = float(x0[2])
+        solver_pt.point.x = x0[0]
+        solver_pt.point.y = x0[1]
+        solver_pt.point.z = x0[2]
         self.solver_state_pos_pub.publish(solver_pt)
 
         err_msg = PointStamped()
         err_msg.header.stamp = stamp
         err_msg.header.frame_id = 'map'
-        err_msg.point.x = float(self.pos_enu[0] - yref[0, 0])
-        err_msg.point.y = float(self.pos_enu[1] - yref[0, 1])
-        err_msg.point.z = float(self.pos_enu[2] - yref[0, 2])
+        err_msg.point.x = self.pos_enu[0] - yref[0, 0]
+        err_msg.point.y = self.pos_enu[1] - yref[0, 1]
+        err_msg.point.z = self.pos_enu[2] - yref[0, 2]
         self.error_pub.publish(err_msg)
 
         effort_msg = PointStamped()
         effort_msg.header.stamp = stamp
         effort_msg.header.frame_id = 'base_link'
-        effort_msg.point.x = float(u_act[0])
-        effort_msg.point.y = float(u_act[1])
-        effort_msg.point.z = float(u_act[2])
+        effort_msg.point.x = u_act[0]
+        effort_msg.point.y = u_act[1]
+        effort_msg.point.z = u_act[2]
         self.effort_pub.publish(effort_msg)
 
         status_msg = Int32()
@@ -489,7 +550,7 @@ class FixedWingMPCNode(Node):
         self.cbf_tripped_pub.publish(tripped_msg)
         
         pen_msg = Float32()
-        pen_msg.data = float(penalty)
+        pen_msg.data = penalty
         self.cbf_penalty_pub.publish(pen_msg)
         
         cbf_stat_msg = Int32()
@@ -500,22 +561,10 @@ class FixedWingMPCNode(Node):
         desired_msg = PointStamped()
         desired_msg.header.stamp = stamp
         desired_msg.header.frame_id = 'base_link'
-        desired_msg.point.x = float(u_act[0]) 
+        desired_msg.point.x = u_act[0]
         desired_msg.point.y = 0.0             
-        desired_msg.point.z = float(u_act[1]) 
+        desired_msg.point.z = u_act[1]
         self.f_w_flu_desired_pub.publish(desired_msg)
-
-        # compute achieved wind forces from kinematics mapped to flu
-        f_aero_enu = self.acc_enu - np.array([0.0, 0.0, -self.model.gravity])
-        f_w_flu = self.R_enu_to_flu @ f_aero_enu
-
-        achieved_msg = PointStamped()
-        achieved_msg.header.stamp = stamp
-        achieved_msg.header.frame_id = 'base_link'
-        achieved_msg.point.x = float(f_w_flu[0]) 
-        achieved_msg.point.y = float(f_w_flu[1]) 
-        achieved_msg.point.z = float(f_w_flu[2]) 
-        self.f_w_flu_achieved_pub.publish(achieved_msg)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -153,29 +153,38 @@ def run_closed_loop_mpc(verbose = False):
     max_sim_steps = 4000 
     N_horizon = 40
     Ts = 0.05
-    target_velocity =15.0
-    use_filter= True
-    repair_horizon = 30
-    v_min = 10.0
-    filter_mode = "HOCBF"
-    cbf_solver_mode = "custom"
-    useRawCmd= False
-    gamma1 = 1.0
-    gamma2 = 1.0
-    filter_max_iter = 4
-    beta = 8.5
+    target_velocity = 15.0
+    use_filter = True
+    use_raw_cmd = False
+    # pack all the filter parameters that are unused elsewhere;
+    # plots should be pulling them from the filter instance anyway (ie cbf_obj.gamma1)
+    filter_params_hocbf = {
+        "filter_mode": "THIRD_ORDER",
+        "solver_mode": "acados",
+        "repair_horizon": 30,
+        "vmin": 10.0,
+        "gamma1": 1.0,
+        "gamma2": 1.0,
+        "beta": 8.5,
+        "max_iters": 4,
+        "CT_or_DT": "DT",
+        "gamma3": 1.0 # only used for experimental 3rd order cbf
+    }
+    
     # initialize slightly off the path in z-up frame
     x0 = np.zeros(8)
     density = 5000
     s_array = np.linspace(0, 8*np.pi, int(density))
-    # global_path = parametrized_ref_path(s_array)
+    
     global_path = parametrized_ref_path_stall(s_array)
     x0[0:3] = global_path[0] 
     x0[3] = target_velocity
     x0[4:8] = euler_to_quaternion(0.0, -np.pi/3, np.pi/4) 
-    cbf_filter = CBFSafetyFilter(model, N_horizon, repair_horizon, Ts, 
-                                 filter_mode, cbf_solver_mode, v_min, gamma1, gamma2,beta,filter_max_iter)
+    
+    # unpack the dictionary using **
+    cbf_filter = CBFSafetyFilter(model, N=N_horizon, Ts=Ts, **filter_params_hocbf) if use_filter else None
     mpc = FixedWingMPC(model, N=N_horizon, Ts=Ts, cbf_filter=cbf_filter, x0_init=x0, trackingAttitude=True)
+    
     # preallocate logging arrays
     X_hist = np.zeros((max_sim_steps, mpc.nx))
     U_hist = np.zeros((max_sim_steps, mpc.nu))
@@ -235,7 +244,7 @@ def run_closed_loop_mpc(verbose = False):
         t_filter_call = time.perf_counter()
         
         if cbf_filter is not None and use_filter:
-            u_filter_horizon, shield_active,_,_ = cbf_filter.filter(x_curr, get_raw_command(useRawCmd,simU),k)
+            u_filter_horizon, shield_active,_,_ = cbf_filter.filter(x_curr, get_raw_command(use_raw_cmd,simU),k)
             u_filter = u_filter_horizon[0, :]
             shield_hist[k] = shield_active
             if shield_active and verbose:

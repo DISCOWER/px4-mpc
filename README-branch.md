@@ -50,10 +50,10 @@ cp ~/PX4-Autopilot/srv/*.srv srv/
 ### Simulation test scripts
 To visualize the CBF safety filter behavior and solver diagnostics outside of the full SITL environment, run the testing dashboards:
 
-![fw-solver](https://github.com/user-attachments/assets/d6013b41-d92a-437f-ab85-7b6dbce2dfe7)
+![Video: fw-solver](https://github.com/user-attachments/assets/2b3a4a8a-53ed-457e-b9a7-b28430c10a1b)
 - `python3 test_fw_solver.py`: Path-following by a reduced-order kinematic model used by the MPC and safety filter (higher-order CBF for stall protection) is tested in a loop with an architecture inspired by [Shield-MPPI](https://arxiv.org/abs/2302.11719)
 
-![filter-test](https://github.com/user-attachments/assets/2b3a4a8a-53ed-457e-b9a7-b28430c10a1b)
+![Video: filter_test](https://github.com/user-attachments/assets/d6013b41-d92a-437f-ab85-7b6dbce2dfe7)
 - `python3 test_filter.py`: evaluate CBF's in open-loop modifying a flat input for customizable range of test cases (orientation, control input, wind)
 
 located in `px4_mpc/px4_mpc/test/`.
@@ -87,7 +87,7 @@ commander arm
 ```bash
 commander mode offboard
 ```
-![SITL-demo](https://github.com/user-attachments/assets/10ff2ad5-6e20-47fa-974e-f701f22e8920)
+![Video: SITL-demo](https://github.com/user-attachments/assets/10ff2ad5-6e20-47fa-974e-f701f22e8920)
 ## Docker and workflow
 ### Docker
 The docker image is built from `nvidia/cuda:13.0.0-cudnn-devel-ubuntu22.04` with an Ubuntu 22.04 environment with cuda installed. 

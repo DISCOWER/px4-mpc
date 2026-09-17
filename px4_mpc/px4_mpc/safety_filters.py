@@ -5,7 +5,7 @@ import time
 
 class CBFSafetyFilter:
 
-    def __init__(self, model, N, repair_horizon, Ts, filter_mode="HOCBF", solver_mode="custom", vmin=1.0, gamma1=2.0, gamma2=2.0, beta=5.0, max_iters=10):
+    def __init__(self, model, N, repair_horizon, Ts, filter_mode="HOCBF", solver_mode="custom", CT_or_DT="DT" ,vmin=1.0, gamma1=1.0, gamma2=1.0, gamma3=1.0, beta=5.0, max_iters=10):
         self.model = model
         self.Ts = Ts
         self.N = N
@@ -13,8 +13,10 @@ class CBFSafetyFilter:
         self.vmin = vmin
         self.filter_mode = filter_mode
         self.solver_mode = solver_mode
+        self.CTorDT = CT_or_DT
         self.gamma1 = gamma1
         self.gamma2 = gamma2
+        self.gamma3 = gamma3
         self.max_iters = max_iters
         self.beta = beta
         
@@ -44,7 +46,22 @@ class CBFSafetyFilter:
         self._setup_solver_routing()
 
     def _get_cbf_components(self, x, u):
-        """this was for CT-CBFs"""
+        """
+        Continuous-time expression for CBF components
+        relative degree analysis for fixed-wing airspeed:
+        - order 1 (v_dot): driven by thrust and pitch gravity
+        - order 2 (v_ddot): driven by pitch rate and yaw rate
+        - order 3 (v_dddot): driven by roll rate  w/ quaternion kinematics
+        
+        THIRD ORDER CBF NEEDS MORE TESTING
+        
+        class k sequence:
+        psi0 = h(x) = v - v_min
+        psi1 = psi0_dot + gamma1 * psi0
+        psi2 = psi1_dot + gamma2 * psi1
+        cbf condition: psi2_dot + gamma3 * psi2 >= 0
+        """
+        
         speed = x[3]
         q = x[4:8]
         f_xw, f_zw, roll_r = u[0], u[1], u[2]
@@ -65,13 +82,41 @@ class CBFSafetyFilter:
         h_dot = f_xw + g_wind[0] # g_xw
         
         if self.filter_mode == "FIRST_ORDER":
-            cbf_val = h_dot + self.gamma1 * psi0
+            cbf_val = h_dot + self.gamma1 * psi0 # psi0_dot + gamma1*psi0
         elif self.filter_mode == "HOCBF":
             psi1 = h_dot + self.gamma1 * psi0
             q_wind = -(f_zw + g_wind[2]) / speed_safe
             r_wind = g_wind[1] / speed_safe
             h_ddot = r_wind * g_wind[1] - q_wind * g_wind[2] + self.gamma1 * h_dot
             cbf_val = h_ddot + self.gamma2 * psi1
+        elif self.filter_mode == "THIRD_ORDER": # experimental
+            psi0_dot = h_dot
+            # 1st order bound:
+            psi1 = psi0_dot+ self.gamma1 + psi0
+            # 2nd order: acceleration
+            q_wind = -(f_zw + g_wind[2]) / speed_safe # pitch rate
+            r_wind = g_wind[1] / speed_safe # yaw rate
+            h_ddot = r_wind * g_wind[1] - q_wind * g_wind[2]
+            psi1_dot = h_ddot + self.gamma1* psi0_dot
+            psi2 = psi1_dot+ self.gamma2 + psi1 # 2nd order bound:
+            omega= cs.vertcat(roll_r,q_wind,r_wind) # vector of rotational rates
+            q_dot = .5* cs.vertcat(
+                -q[1]* omega[0] - q[2]*omega[1] - q[3]*omega[2],
+                q[0] * omega[0] - q[3]*omega[1] + q[2]*omega[2],
+                q[3] * omega[0] - q[0]*omega[1] - q[1]*omega[2],
+                -q[2]* omega[0] - q[1]*omega[1] + q[0]*omega[2],
+            )
+            # 3rd order:
+            dh_dx_ddot = cs.jacobian(h_ddot, x)
+            # chain rule: h_dddot = dh/dv (ddot) * v_dot + dh/dq (ddot) * q_dot
+            # OR just do the whole jacobian and then slice for what we need
+            dh_dV_ddot = dh_dx_ddot[3]
+            dh_dq_ddot = dh_dx_ddot[4:8]
+            h_dddot = dh_dV_ddot * h_dot + cs.mtimes(dh_dq_ddot, q_dot) # includes roll
+            
+            psi2_dot = h_dddot + self.gamma2 * h_ddot + self.gamma1 * psi1_dot
+            cbf_val = psi2_dot + self.gamma3 * psi2
+            
         else:
             raise ValueError(f"bad filter mode: {self.filter_mode}")
             
@@ -85,26 +130,40 @@ class CBFSafetyFilter:
             h_k: h(x_k) = V_a - vmin, value of the value function
             d_h: d_h = h(x_k+1) - h(x_k), finite difference btwn steps
             cbf_val: cbf condition bound
-            - 1st order CBF: h_dot + gamma h(x) \ge 0
-            - HOCBF: h_ddot + (gamma1 + gamma2) h_dot + gamma1*gamma2*h \ge 0
+            - 1st order CBF: h_dot + gamma h(x) >= 0
+            - HOCBF: h_ddot + (gamma1 + gamma2) h_dot + gamma1*gamma2*h >= 0
         CT: 
         h = V - Vmin
         h_dot  = g_xw + f_xw/m
         psi0 = h(x) = V - Vmin (for HOCBF)
-        1st order CBF cond: h_dot + gamma1*h(x) \ge 0
+        1st order CBF cond: h_dot + gamma1*h(x) >= 0
         psi1 = psi0_dot + alpha1(psi0) = h_dot + gamma1*h
-        HOCBF condition: psi1_dot + alpha2(psi1) \ge 0
+        HOCBF condition: psi1_dot + alpha2(psi1) >= 0
         
         class k functions:
         - alpha1(psi0) = gamma1 * h(x), psi0 = h
         - alpha2(psi1) = gamma2 * psi1
+        
+        Discrete difference operator:
+        psi0_k := h(x_k)
+        
+        1st order bound (rel. deg. 1):
+        psi1_k = psi0_k+1 - alpha1 * psi0_k >= 0
+        
+        2nd order bound (rel. deg. 2):
+        psi2_k = psi1_k+1 - alpha2 * psi1_k >= 0
+        
+        3rd order bound (rel. deg. 3):
+        psi3_k = psi2_k+1 - alpha3 * psi2_k >= 0
         """
         # map gamma inputs to discrete class-k decay parameters beta / alpha in (0, 0.95)
-        # \dot h(x) \ge -gamma h(x) ⇒ \dot h(x) \approx (h(x_{k+1}) - h(x_k))/Ts \ge -gamma h(x_k)
-        # h(x_{k+1}) - h(x_k) \ge -gamma*T_s*h(x_k) ⇒ h(x_k) \ge (I - beta) * h(x_{k-1}), beta= gamma*T_s
+        # \dot h(x) >= -gamma h(x) ⇒ \dot h(x) \approx (h(x_{k+1}) - h(x_k))/Ts >= -gamma h(x_k)
+        # h(x_{k+1}) - h(x_k) >= -gamma*T_s*h(x_k) ⇒ h(x_k) >= (I - beta) * h(x_{k-1}), beta= gamma*T_s
         # alpha = 1-beta. beta \in (0,1) 
         alpha1 = cs.fmin(cs.fmax(1.0 - self.gamma1 * self.Ts, 1e-4), 1-1e-4)
         alpha2 = cs.fmin(cs.fmax(1.0 - self.gamma2 * self.Ts, 1e-4), 1-1e-4)
+        alpha3 = cs.fmin(cs.fmax(1.0 - self.gamma3 * self.Ts, 1e-4), 1-1e-4)
+        
         
         h_k = x[3] - self.vmin
         # 1 step with rk4
@@ -125,13 +184,30 @@ class CBFSafetyFilter:
             psi1_next = h_next2 + alpha1 * h_next
             # discrete hocbf condition bound
             cbf_val = psi1_next - alpha2 * psi1_k
+        elif self.filter_mode == "THIRD_ORDER":
+            x_next2 = self._step_func(x_next, u)
+            h_next2 = x_next2[3] - self.vmin
+            # need to predict up to x_k+3 to get up to 3rd order
+            x_next3 = self._step_func(x_next2, u)
+            h_next3 = x_next3[3] - self.vmin
+            # cascade
+            psi1_next = h_next2 - alpha1 * h_next
+            psi1_next2 = h_next3 - alpha1 * h_next2
+            # cascade forward
+            # psi2_k = psi1_k+1 - alpha2 * psi1_k
+            psi2_k = psi1_next - alpha2 * psi1_k
+            # psi2_k+1 = psi1_k+2 - alpha2 * psi1_k+1
+            psi2_next = psi1_next2 - alpha2 * psi1_next
+            
+            # dt 3rd order condition: psi3_k = psi2_k+1 - alpha3 * psi2_k
+            cbf_val = psi2_next - alpha3 * psi2_k
         else:
             raise ValueError(f"bad filter mode: {self.filter_mode}")
             
         return h_k, d_h, cbf_val
 
     def get_cbf_expr(self, x, u):
-        return self._get_dcbf_components(x, u)[2]
+        return self._eval_func(x, u)[2]
 
     def _setup_symbolics(self):
         # build the rk4 integrator first so it can be utilized by the dcbf evaluator
@@ -159,7 +235,13 @@ class CBFSafetyFilter:
         self._x_sym = cs.MX.sym('x_sym', 8)
         self._u_sym = cs.MX.sym('u_sym', 3)
         
-        h_mx, h_next_mx, cbf_val_mx = self._get_dcbf_components(self._x_sym, self._u_sym)
+        if self.CTorDT == "CT":
+            h_mx, h_next_mx, cbf_val_mx = self._get_cbf_components(self._x_sym, self._u_sym)
+        elif self.CTorDT == "DT":
+            h_mx, h_next_mx, cbf_val_mx = self._get_dcbf_components(self._x_sym, self._u_sym)
+        else:
+            raise ValueError("CTorDT must be 'CT' or 'DT'")
+        # _eval_func is precompiled using either CT or DT expression for cbf components
         self._eval_func = cs.Function('eval_cbf_logged', [self._x_sym, self._u_sym], [h_mx, h_next_mx, cbf_val_mx]).expand()
         
         u_single = cs.MX.sym('u_single', 3, 1)
@@ -216,14 +298,13 @@ class CBFSafetyFilter:
         ocp.solver_options.N_horizon = self.K
         ocp.solver_options.tf = self.K * self.Ts
         
-        # Optimization
         # The filter seeks the minimum deviation from the unsafe nominal controls that is safe
         ocp.cost.cost_type = 'NONLINEAR_LS'
         ocp.cost.cost_type_e = 'NONLINEAR_LS'
         ocp.model.cost_y_expr = ocp.model.u
         ocp.model.cost_y_expr_e = cs.MX.sym('y_e', 0, 1) # No terminal cost
         
-        # # Enforce severe penalty on changing roll rate (1e4) to mirror the "masking" behavior
+        # cost for deviation from nominal control
         ocp.cost.W = np.diag([1.0, 1.0, 1.0]) 
         ocp.cost.W_e = np.zeros((0, 0))
         ocp.cost.yref = np.zeros(3) 
@@ -330,8 +411,9 @@ class CBFSafetyFilter:
     def filter(self, x0, U_seq, sim_step=-1):
         t = time.perf_counter()
         diagnostics=None
+        # clean up formatting of x0
         x0_dm = cs.DM(x0) if not isinstance(x0, cs.DM) else x0
-        
+        # clean up formatting of U_seq
         if not isinstance(U_seq, cs.DM):
             U_seq = cs.DM(np.atleast_2d(U_seq))
             
@@ -339,7 +421,7 @@ class CBFSafetyFilter:
             U_seq = self._hold_input(cs.reshape(U_seq, 3, 1))
         else:
             U_seq = U_seq.T if (U_seq.shape == (self.N, 3)) else cs.reshape(U_seq, 3, self.N)
-        
+        # run filter on repair horizon
         self._U_eval = U_seq[:, :self.K]
         t1 = time.perf_counter()
         self.last_perf_breakdown["ms_format"] = (t1 - t) * 1000.0
