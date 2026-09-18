@@ -37,7 +37,7 @@ class FixedWingMPCNode(Node):
 
         # path viz
         self.global_ref_path_pub = self.create_publisher(Path, '/px4_mpc/global_reference_path', qos_latched)
-
+        
         # diagnostics, QoS is best effort as these are only for visualization and debugging
         self.optimal_path_raw_pub = self.create_publisher(Float64MultiArray, '/mpc/traj_optimal_raw', 1)
         self.plane_actual_pos_pub = self.create_publisher(PointStamped, '/mpc/state/plane_actual_pos', 1)
@@ -54,7 +54,7 @@ class FixedWingMPCNode(Node):
         self.cbf_tripped_pub = self.create_publisher(Int32, '/mpc/debug/cbf/tripped', 1)
         self.cbf_penalty_pub = self.create_publisher(Float32, '/mpc/debug/cbf/penalty', 1)
         self.cbf_status_pub = self.create_publisher(Int32, '/mpc/debug/cbf/solver_status', 1)
-
+        
         self.f_w_flu_desired_pub = self.create_publisher(PointStamped, '/mpc/debug/f_w_flu_desired', 1)
         self.f_w_flu_achieved_pub = self.create_publisher(PointStamped, '/mpc/debug/f_w_flu_achieved', 1)
 
@@ -64,6 +64,7 @@ class FixedWingMPCNode(Node):
         self.v_min = 10.0
         self.z_min = 20.0
         includeCBF = True
+        self.warmstart = False # technically the acados solver also has a warm start inside
         # safety parameters
         self.N_repair = 30
         self.filter_mode ="HOCBF" # "HOCBF" or "composite" or None
@@ -126,14 +127,15 @@ class FixedWingMPCNode(Node):
         self.model = FixedWingModel()
         self.nx = 8
         self.nu = 3
-
+        
         self.cbf_filter = CBFSafetyFilter(self.model, N=self.N_horizon, Ts=self.Ts, 
                 **self.filter_params_hocbf) if self.filter_mode == "HOCBF" else \
             CompositeCBFSafetyFilter(self.model, N=self.N_horizon, Ts=self.Ts,
                 **self.filter_params_composite) if self.filter_mode == "composite" else None
-
+        x0_init=np.zeros(self.nx)
+        x0_init[4]=1.0
         self.get_logger().info("initializing mpc solver for indi position tracking")
-        self.mpc = FixedWingMPC( self.model, N=self.N_horizon, Ts=self.Ts, x0_init=np.zeros(self.nx),
+        self.mpc = FixedWingMPC( self.model, N=self.N_horizon, Ts=self.Ts, x0_init=x0_init,
             cbf_filter=self.cbf_filter if includeCBF else None,
             trackingAttitude=False)
         
@@ -143,17 +145,21 @@ class FixedWingMPCNode(Node):
         self.acc_enu = np.zeros(3)
         self.q_enu = np.array([1.0, 0.0, 0.0, 0.0])
         
-        # precomputed matrices to save loop time
-        self.R_flu_to_enu = np.eye(3)
-        self.R_enu_to_flu = np.eye(3)
+        # # precomputed matrices to save loop time
+        # self.R_flu_to_enu = np.eye(3) # only used in velocity anyway
+        # self.R_enu_to_flu = np.eye(3)
 
+        self.x_safe_guess = None #np.zeros((self.N_horizon + 1, self.nx))
+        # self.x_safe_guess[:,4]=1.0
+        self.u_safe_guess = np.zeros((self.N_horizon, self.nu))
+        
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.received_pos = False
         self.received_att = False
         self.sim_step = 0 # just for the visualization updates
         self.last_valid_x_pred = None
         self.last_px4_timestamp = 0
-
+        
         self._publish_global_orbit_path()
         self.timer = self.create_timer(self.Ts, self.control_loop)
 
@@ -215,7 +221,7 @@ class FixedWingMPCNode(Node):
         q_new = self._quat_mul(q_yaw, q_pitch_roll)
         # enforce continuity and ensure same hemisphere as previous quaternion
         return -q_new if np.dot(self.q_enu, q_new) < 0.0 else q_new
-
+    
     def vehicle_status_callback(self, msg):
         self.nav_state = msg.nav_state
         self.last_px4_timestamp = msg.timestamp
@@ -224,29 +230,19 @@ class FixedWingMPCNode(Node):
         """
         process px4 attitude; convert from NED ⇒ ENU 
         """
-        # save normalize quaternion (w,x,y,z) from px4, ned frame
-        q_raw_ned = np.array([msg.q[0], msg.q[1], msg.q[2], msg.q[3]])
-        n_raw = np.linalg.norm(q_raw_ned)
-        if n_raw < 1e-6: 
-            return # reject flawed ones
-        q_norm_ned = q_raw_ned / n_raw
-        
+        q_raw_ned = np.array([msg.q[0], msg.q[1], msg.q[2], msg.q[3]]) 
         # unnormalized quat for ned to enu for indi controller
         # x_enu = y_ned, y_enu = x_ned, z_enu = -z_ned
-        q_unnorm = (1.0 / np.sqrt(2.0)) * np.array([
-            q_norm_ned[0] + q_norm_ned[3], # w_enu
-            q_norm_ned[1] + q_norm_ned[2], # x_enu
-            q_norm_ned[1] - q_norm_ned[2], # y_enu
-            q_norm_ned[0] - q_norm_ned[3]  # z_enu
+        self.q_enu = (1.0 / np.sqrt(2.0)) * np.array([
+            q_raw_ned[0] + q_raw_ned[3], # w_enu
+            q_raw_ned[1] + q_raw_ned[2], # x_enu
+            q_raw_ned[1] - q_raw_ned[2], # y_enu
+            q_raw_ned[0] - q_raw_ned[3]  # z_enu
         ])
-        n = np.linalg.norm(q_unnorm)
-        if n > 1e-6:
-            self.q_enu = q_unnorm / n
-            # precompute matrices for use in control loop
-            self.R_flu_to_enu = self._quat_to_rotmat(self.q_enu)
-            self.R_enu_to_flu = self.R_flu_to_enu.T
-            self.received_att = True
-            
+        # # precompute matrices for use in control loop
+        # self.R_flu_to_enu = self._quat_to_rotmat(self.q_enu)
+        # self.R_enu_to_flu = self.R_flu_to_enu.T
+        self.received_att = True
         self.last_px4_timestamp = msg.timestamp
     
     def vehicle_local_position_callback(self, msg):
@@ -264,7 +260,7 @@ class FixedWingMPCNode(Node):
             
         self.received_pos = True
         self.last_px4_timestamp = msg.timestamp
-        
+    
     def imu_callback(self,msg):
         """
         Just for comparison, not used in control:
@@ -334,10 +330,10 @@ class FixedWingMPCNode(Node):
                 pt2 = global_path_array[next_idx]
                 accumulated += np.linalg.norm(pt2 - pt1)
                 search_idx = next_idx
-                
+            
             yref[i, 0:3] = global_path_array[search_idx]
             yref[i, 4] = 1.0 
-            
+        
         return yref
 
     def control_loop(self):
@@ -346,12 +342,18 @@ class FixedWingMPCNode(Node):
 
         timestamp = int(self.last_px4_timestamp) if self.last_px4_timestamp > 0 else int(Clock().now().nanoseconds / 1000)
         
-        q_corrected = self._correct_ekf_yaw_drift(self.q_enu, self.vel_enu, self.current_speed)
-        x0 = np.concatenate([self.pos_enu, [self.current_speed], q_corrected])
+        # q_corrected = self._correct_ekf_yaw_drift(self.q_enu, self.vel_enu, self.current_speed)
+        x0 = np.concatenate([self.pos_enu, [self.current_speed], self.q_enu])
 
         yref = self.generate_reference_trajectory(self.global_path_array)
-        # add a warm start
-        u_pred, x_pred, mpc_status = self.mpc.solve(x0, yref)
+        
+        # dynamic cold start if the arrays are empty or need a hard reset
+        
+        if self.warmstart and self.x_safe_guess is not None:
+            u_pred, x_pred, mpc_status = self.mpc.solve(x0, yref,
+                                    x_warm_start=self.x_safe_guess, u_warm_start=self.u_safe_guess)
+        else:
+            u_pred, x_pred, mpc_status = self.mpc.solve(x0, yref)
 
         is_x_pred_valid = (x_pred is not None) and np.all(np.isfinite(x_pred))
         is_u_pred_valid = (u_pred is not None) and np.all(np.isfinite(u_pred))
@@ -359,46 +361,63 @@ class FixedWingMPCNode(Node):
 
         # grab the prediction for visualization even if status is bad as long as it isnt nans
         if is_x_pred_valid:
-            self.last_valid_x_pred = x_pred.copy()
-            viz_x_pred = x_pred
+            viz_x_pred = x_pred.copy()
+            ctrl_x_pred = x_pred.copy()
         elif self.last_valid_x_pred is not None:
             viz_x_pred = self.last_valid_x_pred.copy()
-        else:
+            ctrl_x_pred = self.last_valid_x_pred.copy()
+        else: # fallback that only runs when we have no previous valid MPC sol + x_pred isn't valid
+            # this yref won't get any further than visuals, as conds also hit a return before ctrl pubs
             viz_x_pred = yref[:, :self.nx].copy()
-
+            ctrl_x_pred = yref[:, :self.nx].copy()
         # default diagnostic variables for the cbf
         shield_tripped = False
         penalty = 0.0
         cbf_status = 0
 
-        if is_u_pred_valid and not solver_failed:
+        if not solver_failed:
             if self.cbf_filter is not None:
-                u_safe_seq, shield_tripped, penalty, diag = self.cbf_filter.filter(x0, u_pred, self.sim_step)
-                u_act = u_safe_seq[0, :]
+                u_filtered, shield_tripped, penalty, diag = self.cbf_filter.filter(x0, u_pred, self.sim_step)
+                u_act = u_filtered[0, :]
                 
                 # unpack diagnostic dict if the cbf solver threw an error
                 if diag is not None:
                     cbf_status = diag.get('status_code', -1)
                 
                 if shield_tripped: 
-                    # roll out the safe controls to generate the true safe attitudes for the setpoints
-                    u_for_rollout = u_safe_seq[:self.cbf_filter.K,:].T
-                    safe_x_dm = self.cbf_filter._rollout_func(x0, u_for_rollout)
+                    # update the predicted states for repaired horizon (k steps)
+                    u_for_rollout = u_filtered[:self.cbf_filter.K,:].T
+                    x_repaired_dm = np.array(self.cbf_filter._rollout_func(x0, u_for_rollout)).T
                     
-                    # overwrite the mpc prediction with safe rollout
-                    safe_x_np = np.array(safe_x_dm).T
-                    viz_x_pred[:self.cbf_filter.K + 1, :] = safe_x_np
+                    # overwrite the mpc prediction with safe rollout (convert from casadi DM to np)
+                    ctrl_x_pred[:self.cbf_filter.K + 1, :] = x_repaired_dm
                     
                     if self.sim_step % 10 == 0:
                         if cbf_status != 0:
                             self.get_logger().error(f"CBF shield fail: status {cbf_status}! Run fallback option")
+                # warmstart regardless of shield
+                if self.warmstart: # if warm starting: update safe guess
+                    self.u_safe_guess[:-1, :] = u_filtered[1:, :]
+                    self.u_safe_guess[-1, :] = u_filtered[-1, :]
             else:
                 u_act = u_pred[0, :]
+                if self.warmstart:
+                    self.u_safe_guess[:-1, :] = u_pred[1:, :]
+                    self.u_safe_guess[-1, :] = u_pred[-1, :]
         else:
             u_act = np.array([0.0, self.model.gravity, 0.0])
             if self.sim_step % 10 == 0:
                 self.get_logger().error(f"MPC fail: status {mpc_status}. Run fallback option")
                 
+        if is_x_pred_valid:
+            self.last_valid_x_pred = ctrl_x_pred.copy()
+            if self.warmstart and not solver_failed:
+                # shift the states for the warm start
+                if self.x_safe_guess is None: # first time
+                    self.x_safe_guess = np.zeros((self.N_horizon + 1, self.nx))
+                self.x_safe_guess[:-1, :] = ctrl_x_pred[1:, :]
+                self.x_safe_guess[-1, :] = ctrl_x_pred[-1, :]
+
         self.sim_step += 1 # just for the visualization updates
         
         is_offboard = (self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD)
@@ -412,8 +431,8 @@ class FixedWingMPCNode(Node):
         if not is_offboard or solver_failed:
             return
 
-        self.publish_control_traj_setpoint(u_act, viz_x_pred, timestamp)
-        self.publish_control_body(u_act, viz_x_pred, timestamp)
+        self.publish_control_traj_setpoint(u_act, ctrl_x_pred, timestamp)
+        self.publish_control_body(u_act, ctrl_x_pred, timestamp)
 
     def publish_control_traj_setpoint(self, u_act, x_pred, timestamp):
         """
@@ -431,7 +450,7 @@ class FixedWingMPCNode(Node):
 
         q_target_enu = x_pred[1, 4:8]
         R_target = self._quat_to_rotmat(q_target_enu)
-
+        
         # map specific force to enu frame
         f_w_body = np.array([fxw_cmd, 0.0, fzw_cmd])
         # kin accel = gravity vector + body forces rotated into ENU frame
@@ -543,7 +562,7 @@ class FixedWingMPCNode(Node):
         offboard_msg = Int32()
         offboard_msg.data = 1 if is_offboard else 0
         self.detect_offboard_pub.publish(offboard_msg)
-
+        
         # log the safety filter diagnostics
         tripped_msg = Int32()
         tripped_msg.data = 1 if shield_tripped else 0
@@ -565,7 +584,7 @@ class FixedWingMPCNode(Node):
         desired_msg.point.y = 0.0             
         desired_msg.point.z = u_act[1]
         self.f_w_flu_desired_pub.publish(desired_msg)
-
+        
 def main(args=None):
     rclpy.init(args=args)
     node = FixedWingMPCNode()
