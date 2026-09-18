@@ -1,0 +1,36 @@
+services:
+  fw-env:
+    build:
+      context: ../
+      dockerfile: host_folder/Dockerfile
+    
+      # Passes the host network for ROS 2 DDS communication
+    network_mode: "host"
+    ipc: "host"
+    # Mounts your live code and the X11 sockets for RViz2
+    volumes:
+      - .:/ros2_ws:cached
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - $HOME/.Xauthority:/root/.Xauthority:rw
+      - $HOME/.Xauthority:/home/rosuser/.Xauthority:rw
+      - ~/.vscode/extensions:/rosuser/.vscode-server/extensions:ro
+      - ../PX4-Autopilot:/PX4-Autopilot:cached
+      - /home/Avl/:/Avl:cached
+      - ~/.ssh:/home/rosuser/.ssh:ro
+    devices:
+      - /dev/dri:/dev/dri
+      
+    # Passes the display variable for GUI rendering
+    environment:
+      - DISPLAY=${DISPLAY}
+      # - NVIDIA_DRIVER_CAPABILITIES=all is deprecated
+    # The modern Compose method for passing NVIDIA GPUs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu,graphics,compute,display]                
+    # Keeps the container running so VS Code can attach to it
+    command: sleep infinity
