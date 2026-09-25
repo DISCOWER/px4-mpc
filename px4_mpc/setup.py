@@ -13,7 +13,6 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name), glob(os.path.join('px4_mpc/launch', '*launch.[pxy][yma]*'))),
-        # (os.path.join('share', package_name), glob('launch/*.[pxy][yma]*')),
         (os.path.join('share', package_name), glob(os.path.join('px4_mpc/config', '*.rviz'))),
     ],
     install_requires=['setuptools'],

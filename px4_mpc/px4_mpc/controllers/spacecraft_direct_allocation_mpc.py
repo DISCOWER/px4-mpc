@@ -31,20 +31,23 @@
 #
 ############################################################################
 
-from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
+from acados_template import AcadosOcp, AcadosOcpSolver
 import numpy as np
 import casadi as cs
 import os
+from px4_mpc.utils.rotations import quat_error_v_cs
 
 class SpacecraftDirectAllocationMPC():
-    def __init__(self, model):
+    def __init__(self, model, skip_build=False, kthspace_constraints=False):
         self.model = model
-        self.Tf = 5.0
-        self.N = 49
+        self.skip_build = skip_build
+        self.kthspace_constraints = kthspace_constraints
 
+        self.Tf = 4.0
+        self.N = 20
         self.x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-        self.ocp_solver, self.integrator = self.setup(self.x0, self.N, self.Tf)
+        self.ocp_solver = self.setup(self.x0, self.N, self.Tf)
 
     def setup(self, x0, N_horizon, Tf):
         # create ocp object to formulate the OCP
@@ -66,18 +69,17 @@ class SpacecraftDirectAllocationMPC():
 
         nx = model.x.size()[0]
         nu = model.u.size()[0]
-        print(f"nx: {nx}, nu: {nu}")
 
         # set dimensions
         ocp.dims.N = N_horizon
         ocp.solver_options.N_horizon = N_horizon
 
         # set cost
-        Q_mat = [5e1, 5e1, 5e1,
-                 1e1, 1e1, 1e1,
-                 8e3,
-                 1e1, 1e1, 1e1]
-        R_mat = [1e1] * 4
+        Q_mat = [4e1, 4e1, 4e1,     # position
+                2e2, 2e2, 2e2,      # velocity
+                4e1, 4e1, 4e1,      # attitude (q_error_v)
+                6e0, 6e0, 6e0]      # angular velocity
+        R_mat = [5e0] * 4           # thruster pairs (0&1, 2&3, 4&5, 6&7)
 
         ocp.cost.W_0 = np.diag(Q_mat + R_mat)
         ocp.cost.W = np.diag(Q_mat + R_mat)
@@ -93,9 +95,11 @@ class SpacecraftDirectAllocationMPC():
         x = ocp.model.x
         u = ocp.model.u
 
+        q_error_v = quat_error_v_cs(x[6:10], x_ref[6:10])
+
         x_error = x[0:3] - x_ref[0:3]
         x_error = cs.vertcat(x_error, x[3:6] - x_ref[3:6])
-        x_error = cs.vertcat(x_error, 1 - (x[6:10].T @ x_ref[6:10])**2)
+        x_error = cs.vertcat(x_error, q_error_v)
         x_error = cs.vertcat(x_error, x[10:13] - x_ref[10:13])
         u_error = u - u_ref
 
@@ -107,7 +111,6 @@ class SpacecraftDirectAllocationMPC():
         ocp.cost.cost_type_0 = 'NONLINEAR_LS'
 
         ocp.model.cost_y_expr_0 = cs.vertcat(x_error, u_error)
-        ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr = cs.vertcat(x_error, u_error)
         ocp.model.cost_y_expr_e = x_error
 
@@ -125,20 +128,24 @@ class SpacecraftDirectAllocationMPC():
         ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
         # set constraints on X
-        ocp.constraints.lbx = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+        if self.kthspace_constraints:
+            ocp.constraints.lbx = np.array([0.3, -1.28, -0.5, -0.5, -0.5])
+            ocp.constraints.ubx = np.array([+3.8, +1.44, +0.5, +0.5, +0.5])
+            ocp.constraints.idxbx = np.array([0, 1, 3, 4, 12])
+        else:
+            ocp.constraints.lbx = np.array([-0.5, -0.5, -0.5])
+            ocp.constraints.ubx = np.array([+0.5, +0.5, +0.5])
+            ocp.constraints.idxbx = np.array([3, 4, 12])
 
         # set constraints on X at the end of the horizon
-        ocp.constraints.lbx_e = np.array([-5, -5, -5, -1, -1, -1, -1, -1, -1])
-        ocp.constraints.ubx_e = np.array([+5, +5, +5, +1, +1, +1, +1, +1, +1])
-        ocp.constraints.idxbx_e = np.array([0, 1, 2, 3, 4, 5, 10, 11, 12])
+        ocp.constraints.lbx_e = ocp.constraints.lbx
+        ocp.constraints.ubx_e = ocp.constraints.ubx
+        ocp.constraints.idxbx_e = ocp.constraints.idxbx
 
         # To constrain quaternion states, add indices 6–9 to idxbx/idxbx_e and set their bounds in lbx/ubx.
         # Usually not needed. Valid quaternions stay in [-1, 1], and drift is better fixed by renormalising.
 
         # Soft constraints are turned on by setting weights for slack variables
-        # TODO: This should be configured by config file
         use_soft_constraints = True
         if use_soft_constraints:
             # set weights slack variables for X constraints
@@ -174,17 +181,17 @@ class SpacecraftDirectAllocationMPC():
         else:
             ocp.solver_options.nlp_solver_type = 'SQP' # SQP_RTI, SQP
 
-        # ocp.solver_options.qp_solver_cond_N = N_horizon
-        # ocp.solver_options.print_level = 6
+        ocp.solver_options.qp_solver_cond_N = N_horizon
 
         # set prediction horizon
         ocp.solver_options.tf = Tf
 
-        ocp_solver = AcadosOcpSolver(ocp, json_file=json_path)
-        # create an integrator with the same settings as used in the OCP solver.
-        acados_integrator = AcadosSimSolver(ocp, json_file=json_path)
+        # create ocp solver
+        ocp_solver = AcadosOcpSolver(ocp, json_file=json_path,
+                                    generate=not self.skip_build,
+                                    build=not self.skip_build)
 
-        return ocp_solver, acados_integrator
+        return ocp_solver
 
     def solve(self, x0, verbose=False, ref=None):
 

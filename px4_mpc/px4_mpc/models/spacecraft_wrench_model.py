@@ -32,8 +32,9 @@
 ############################################################################
 
 from acados_template import AcadosModel
-import casadi as ca
+import casadi as cs
 import numpy as np
+import px4_mpc.utils.rotations as R
 
 class SpacecraftWrenchModel():
     def __init__(self):
@@ -42,116 +43,74 @@ class SpacecraftWrenchModel():
         # constants
         self.mass = 17.8
         self.inertia = np.diag([0.315]*3)
-        self.max_thrust = 2 * 1.5
-        self.max_torque = 4 * 0.12 * 1.5
-
-        # set linearized symbolic matrices
-        # functions: 12x12, 12x6 wrt error state
-        # call each with x_err, u, x_ref, u_ref
-        self.create_model()
-        self.A, self.B = self.sym_linearization()
-
-    def create_model(self):
-        def skew_symmetric(v):
-            return ca.vertcat(ca.horzcat(0, -v[0], -v[1], -v[2]),
-                              ca.horzcat(v[0], 0, v[2], -v[1]),
-                              ca.horzcat(v[1], -v[2], 0, v[0]),
-                              ca.horzcat(v[2], v[1], -v[0], 0))
-
-        def q_to_rot_mat(q):
-            qw, qx, qy, qz = q[0], q[1], q[2], q[3]
-
-            rot_mat = ca.vertcat(
-                ca.horzcat(1 - 2 * (qy ** 2 + qz ** 2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)),
-                ca.horzcat(2 * (qx * qy + qw * qz), 1 - 2 * (qx ** 2 + qz ** 2), 2 * (qy * qz - qw * qx)),
-                ca.horzcat(2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx ** 2 + qy ** 2)))
-
-            return rot_mat
-
-        def v_dot_q(v, q):
-            rot_mat = q_to_rot_mat(q)
-
-            return ca.mtimes(rot_mat, v)
-
-        # set up states & controls
-        p      = ca.MX.sym('p', 3)
-        v      = ca.MX.sym('v', 3)
-        q      = ca.MX.sym('q', 4)
-        w      = ca.MX.sym('w', 3)
-
-        self.x = ca.vertcat(p, v, q, w)
-        self.u = ca.MX.sym('u', 6)
-
-        F = self.u[0:3]
-        tau = self.u[3:6]
-
-        # xdot
-        p_dot      = ca.MX.sym('p_dot', 3)
-        v_dot      = ca.MX.sym('v_dot', 3)
-        q_dot      = ca.MX.sym('q_dot', 4)
-        w_dot      = ca.MX.sym('w_dot', 3)
-
-        self.xdot = ca.vertcat(p_dot, v_dot, q_dot, w_dot)
-
-        # dynamics
-        self.f_expl = ca.vertcat(v,
-                                 v_dot_q(F, q) / self.mass,
-                                 1.0 / 2 * ca.mtimes(skew_symmetric(w), q),
-                                 ca.inv(self.inertia) @ (tau - ca.cross(w, self.inertia @ w))
-                                 )
-        self.dynamics = ca.Function('f', [self.x, self.u], [self.f_expl])
-        return
+        self.max_thrust = 2 * 1.4 * 2/3
+        self.max_torque = 4 * 0.12 * 1.4 * 1/3
 
     def get_acados_model(self) -> AcadosModel:
         model = AcadosModel()
-        f_impl = self.xdot - self.f_expl
+
+        # set up states & controls
+        p      = cs.MX.sym('p', 3)
+        v      = cs.MX.sym('v', 3)
+        q      = cs.MX.sym('q', 4)
+        w      = cs.MX.sym('w', 3)
+
+        x = cs.vertcat(p, v, q, w)
+
+        u = cs.MX.sym('u', 6)
+
+        F = u[0:3]
+        tau = u[3:6]
+
+        # xdot
+        p_dot      = cs.MX.sym('p_dot', 3)
+        v_dot      = cs.MX.sym('v_dot', 3)
+        q_dot      = cs.MX.sym('q_dot', 4)
+        w_dot      = cs.MX.sym('w_dot', 3)
+
+        xdot = cs.vertcat(p_dot, v_dot, q_dot, w_dot)
+
+        q_normalized = q / cs.norm_2(q)
+        a_thrust = R.v_dot_q_cs(F, q_normalized)/self.mass
+
+        # dynamics
+        f_expl = cs.vertcat(v,
+                            a_thrust,
+                            1 / 2 * cs.mtimes(R.skew_symmetric_cs(w), q_normalized),
+                            np.linalg.inv(self.inertia) @ (tau - cs.cross(w, self.inertia @ w))
+                            )
+
+        f_impl = xdot - f_expl
 
         model.f_impl_expr = f_impl
-        model.f_expl_expr = self.f_expl
-        model.x = self.x
-        model.xdot = self.xdot
-        model.u = self.u
+        model.f_expl_expr = f_expl
+        model.x = x
+        model.xdot = xdot
+        model.u = u
         model.name = self.name
+
         return model
 
-    def quat_mul(self, q1, q2):
-        """Quaternion multiplication q = q1 ⊗ q2"""
-        w1, x1, y1, z1 = q1[0], q1[1], q1[2], q1[3]
-        w2, x2, y2, z2 = q2[0], q2[1], q2[2], q2[3]
-        return ca.vertcat(
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        )
-
-    def quat_conj(self, q):
-        """Quaternion conjugate (also inverse for unit quaternion)"""
-        return ca.vertcat(q[0], -q[1], -q[2], -q[3])
-
-    def quat_error(self, q_ref, q):
-        """Error quaternion: q_e = q_ref^-1 ⊗ q"""
-        return self.quat_mul(self.quat_conj(q_ref), q)
-
-    def quat_to_dphi(self, qe):
-        """Small-angle error vector from error quaternion"""
-        # Vector part times 2
-        return 2 * qe[1:4]
-
     def get_error_state(self, x_ref, x):
+        """Error state [dp, dv, dphi, dw] (12) between full states x and x_ref (13), used by LQR"""
         dp = x[0:3] - x_ref[0:3]
         dv = x[3:6] - x_ref[3:6]
-        qe = self.quat_error(x_ref[6:10], x[6:10])
-        dphi = self.quat_to_dphi(qe)
+        dphi = R.quat_to_dphi_cs(R.quat_error_cs(x_ref[6:10], x[6:10]))
         dw = x[10:13] - x_ref[10:13]
-        return ca.vertcat(dp, dv, dphi, dw)
+        return cs.vertcat(dp, dv, dphi, dw)
 
     def sym_linearization(self):
+        """Linearized error dynamics for LQR
+        Returns functions A_fun (12x12) and B_fun (12x6), each called with (x_err, u, x_ref, u_ref)
+        """
+        model = self.get_acados_model()
+        dynamics = cs.Function('f', [model.x, model.u], [model.f_expl_expr])
+
         # --- symbolic variables ---
-        x_ref = ca.MX.sym('x_ref', 13)
-        u_ref = ca.MX.sym('u_ref', 6)
-        x_err = ca.MX.sym('x_err', 12)
-        u = ca.MX.sym('u', 6)
+        x_ref = cs.MX.sym('x_ref', 13)
+        u_ref = cs.MX.sym('u_ref', 6)
+        x_err = cs.MX.sym('x_err', 12)
+        u = cs.MX.sym('u', 6)
 
         # --- reconstruct full state from error ---
         dp = x_err[0:3]
@@ -165,29 +124,30 @@ class SpacecraftWrenchModel():
 
         # small-angle quaternion approximation: q ≈ q_ref * [1; 0.5*dphi]
         q_ref = x_ref[6:10]
-        q_delta = ca.vertcat(1.0, 0.5 * dphi)
-        q = self.quat_mul(q_ref, q_delta)
-        q = q / ca.sqrt(ca.dot(q, q))  # normalize
+        q_delta = cs.vertcat(1.0, 0.5 * dphi)
+        q = R.quat_mult_cs(q_ref, q_delta)
+        q = q / cs.sqrt(cs.dot(q, q))  # normalize
 
-        x_full = ca.vertcat(p, v, q, w)
+        x_full = cs.vertcat(p, v, q, w)
 
         # --- dynamics ---
-        f_full = self.dynamics(x_full, u)
-        f_ref = self.dynamics(x_ref, u_ref)
+        f_full = dynamics(x_full, u)
+        f_ref = dynamics(x_ref, u_ref)
 
         # --- error dynamics ---
         dpdot = f_full[0:3] - f_ref[0:3]
         dvdot = f_full[3:6] - f_ref[3:6]
-        q_e_dot = self.quat_mul(self.quat_conj(q_ref), f_full[6:10])
+        q_normalized_full = f_full[6:10] / cs.norm_2(f_full[6:10])
+        q_e_dot = R.quat_mult_cs(R.quat_conj_cs(q_ref), q_normalized_full)
         dphi_dot = 2 * q_e_dot[1:4]
         dwdot = f_full[10:13] - f_ref[10:13]
 
-        xerr_dot = ca.vertcat(dpdot, dvdot, dphi_dot, dwdot)
+        xerr_dot = cs.vertcat(dpdot, dvdot, dphi_dot, dwdot)
 
         # --- Jacobians ---
-        A_fun = ca.Function('A_fun', [x_err, u, x_ref, u_ref],
-                            [ca.jacobian(xerr_dot, x_err)])
-        B_fun = ca.Function('B_fun', [x_err, u, x_ref, u_ref],
-                            [ca.jacobian(xerr_dot, u)])
+        A_fun = cs.Function('A_fun', [x_err, u, x_ref, u_ref],
+                            [cs.jacobian(xerr_dot, x_err)])
+        B_fun = cs.Function('B_fun', [x_err, u, x_ref, u_ref],
+                            [cs.jacobian(xerr_dot, u)])
 
         return A_fun, B_fun

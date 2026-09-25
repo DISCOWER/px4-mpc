@@ -14,7 +14,7 @@ class SetpointPublisher(Node):
         self.sitl = self.declare_parameter('hardware', False).value
         self.namespace_prefix = f'/{self.namespace}' if self.namespace else ''
 
-        self.publisher_ = self.create_publisher(PoseStamped, f'{self.namespace_prefix}/px4_mpc/setpoint_pose', 10)
+        self.publisher_ = self.create_publisher(PoseStamped, f'px4_mpc/setpoint_pose', 10)
         self.timer_period = 0.01  # seconds
         time.sleep(5) # Give time for all inits...
         self.counter = 0
