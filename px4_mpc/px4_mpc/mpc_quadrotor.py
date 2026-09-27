@@ -90,7 +90,7 @@ class QuadrotorMPC(Node):
             qos_profile_sub)
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            'fmu/out/vehicle_status_v1',
+            'fmu/out/vehicle_status_v4',
             self.vehicle_status_callback,
             qos_profile_sub)
 

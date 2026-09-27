@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name), glob(os.path.join('px4_mpc/launch', '*launch.[pxy][yma]*'))),
         (os.path.join('share', package_name), glob(os.path.join('px4_mpc/config', '*.rviz'))),
+        (os.path.join('share', package_name, 'resource'), glob('resource/*.dae')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
                 'mpc_quadrotor = px4_mpc.mpc_quadrotor:main',
+                'mpc_fixedwing = px4_mpc.mpc_fixedwing:main',
+                'fw_viz = px4_mpc.fw_viz:main',
                 'mpc_spacecraft = px4_mpc.mpc_spacecraft:main',
                 'test_setpoints = px4_mpc.test.test_setpoints:main',
                 'rviz_pos_marker = px4_mpc.rviz_pos_marker:main',

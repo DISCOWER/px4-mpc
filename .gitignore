@@ -18,3 +18,5 @@ venv.bak/
 
 *c_generated_code*
 *.json
+*.o
+*.so

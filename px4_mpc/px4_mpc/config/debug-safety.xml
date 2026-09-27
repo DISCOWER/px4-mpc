@@ -1,0 +1,308 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<root>
+ <tabbed_widget name="Main Window" parent="main_window">
+  <Tab containers="1" tab_name="ctrl pipeline">
+   <Container>
+    <DockSplitter count="4" orientation="-" sizes="0.156128;0.277127;0.291179;0.275566">
+     <DockArea name="...">
+      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-0.025000" left="3364.555505" right="3384.556249" top="1.025000"/>
+       <limitY/>
+       <curve color="#ff0008" name="/mpc/debug/cbf/solver_status/data"/>
+       <curve color="#1f77b4" name="/mpc/debug/solver_diagnostics/solver_status/data"/>
+       <curve color="#27d649" name="/mpc/debug/solver_diagnostics/solver_fail/data"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-10.554004" left="3364.555505" right="3384.556249" top="14.368773"/>
+       <limitY/>
+       <curve color="#0e88ff" name="/mpc/debug/control_effort/point/x"/>
+       <curve color="#38ece1" name="/mpc/debug/f_w_flu_desired/point/x"/>
+       <curve color="#e000ff" name="/mpc/debug/f_w_flu_achieved/point/x"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-1.030250" left="3364.555505" right="3384.556249" top="0.240238"/>
+       <limitY/>
+       <curve color="#0e88ff" name="/fmu/in/vehicle_rates_setpoint/roll"/>
+       <curve color="#38ece1" name="/mpc/debug/f_w_flu_desired/point/y"/>
+       <curve color="#e000ff" name="/mpc/debug/f_w_flu_achieved/point/y"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-16.093922" left="3364.555505" right="3384.556249" top="20.880340"/>
+       <limitY/>
+       <curve color="#38ece1" name="/mpc/debug/f_w_flu_desired/point/z"/>
+       <curve color="#e000ff" name="/mpc/debug/f_w_flu_achieved/point/z"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <Tab containers="1" tab_name="indi vs world">
+   <Container>
+    <DockSplitter count="3" orientation="-" sizes="0.333073;0.333853;0.333073">
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-12.082512" left="3364.556293" right="3384.582654" top="13.522346"/>
+       <limitY/>
+       <curve color="#f14cc1" name="/fmu/out/vehicle_local_position/ax"/>
+       <curve color="#d62728" name="/fmu/in/trajectory_setpoint/acceleration[0]"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-15.593984" left="3364.556293" right="3384.582654" top="16.041603"/>
+       <limitY/>
+       <curve color="#9467bd" name="/fmu/out/vehicle_local_position/ay"/>
+       <curve color="#1ac938" name="/fmu/in/trajectory_setpoint/acceleration[1]"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-29.623110" left="3364.556293" right="3384.582654" top="10.111513"/>
+       <limitY/>
+       <curve color="#17becf" name="/fmu/out/vehicle_local_position/az"/>
+       <curve color="#ff7f0e" name="/fmu/in/trajectory_setpoint/acceleration[2]"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <Tab containers="1" tab_name="safety">
+   <Container>
+    <DockSplitter count="4" orientation="-" sizes="0.262295;0.237315;0.140515;0.359875">
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="10.317812" left="3364.555670" right="3384.582709" top="22.940868"/>
+       <limitY/>
+       <curve color="#1ac938" name="/fmu/out/airspeed_validated/calibrated_airspeed_m_s"/>
+       <curve color="#17becf" name="v_odom"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot background_colormap="airspeed_safety_colors" background_data="airspeed_safety_colors" flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-70.111356" left="3364.555670" right="3384.582709" top="-13.495154"/>
+       <limitY/>
+       <curve color="#f14cc1" name="/fmu/out/vehicle_odometry/position[2]"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-0.025000" left="3364.555670" right="3384.582709" top="1.025000"/>
+       <limitY/>
+       <curve color="#ff7f0e" name="/mpc/debug/cbf/solver_status/data"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-0.000000" left="3364.555670" right="3384.582709" top="0.000000"/>
+       <limitY/>
+       <curve color="#1f77b4" name="/mpc/debug/cbf/penalty/data"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <currentTabIndex index="0"/>
+ </tabbed_widget>
+ <use_relative_time_offset enabled="1"/>
+ <streaming_buffer_size value="20"/>
+ <!-- - - - - - - - - - - - - - - -->
+ <!-- - - - - - - - - - - - - - - -->
+ <Plugins>
+  <plugin ID="DataLoad CSV">
+   <parameters delimiter="0" skip_rows="0" time_axis=""/>
+  </plugin>
+  <plugin ID="DataLoad MCAP"/>
+  <plugin ID="DataLoad ROS2 bags">
+   <use_header_stamp value="false"/>
+   <discard_large_arrays value="true"/>
+   <max_array_size value="100"/>
+   <boolean_strings_to_number value="true"/>
+   <remove_suffix_from_strings value="true"/>
+   <selected_topics value="/events/write_split;/fmu/in/trajectory_setpoint;/fmu/in/vehicle_attitude_setpoint;/fmu/in/vehicle_rates_setpoint;/fmu/out/actuator_motors;/fmu/out/airspeed_validated;/fmu/out/airspeed_wind;/fmu/out/battery_status;/fmu/out/estimator_status_flags;/fmu/out/failsafe_flags;/fmu/out/home_position;/fmu/out/mode_completed;/fmu/out/position_setpoint_triplet;/fmu/out/register_ext_component_reply;/fmu/out/sensor_combined;/fmu/out/tecs_status;/fmu/out/timesync_status;/fmu/out/vehicle_attitude;/fmu/out/vehicle_command_ack;/fmu/out/vehicle_control_mode;/fmu/out/vehicle_global_position;/fmu/out/vehicle_gps_position;/fmu/out/vehicle_land_detected;/fmu/out/vehicle_local_position;/fmu/out/vehicle_odometry;/fmu/out/vehicle_status_v1;/fmu/out/wind;/mpc/debug/control_effort;/mpc/debug/solver_diagnostics/detect_offboard;/mpc/debug/solver_diagnostics/solver_fail;/mpc/debug/solver_diagnostics/solver_status;/mpc/debug/tracking_error_xyz;/mpc/state/plane_actual_pos;/mpc/state/solver_x0_pos;/mpc/traj_optimal_raw;/parameter_events;/px4_mpc/global_reference_path;/px4_viz/optimal_path;/px4_viz/state_comparison;/px4_viz/vehicle_path;/px4_viz/vehicle_pose;/rosout;/tf;/mpc/debug/f_w_flu_achieved;/mpc/debug/f_w_flu_desired"/>
+  </plugin>
+  <plugin ID="DataLoad ULog"/>
+  <plugin ID="Foxglove ROS2 Bridge">
+   <foxglove_client clamp_large_arrays="0" max_array_size="500" url="ws://127.0.0.1:8765" use_timestamp="0">
+    <topics/>
+   </foxglove_client>
+  </plugin>
+  <plugin ID="PlotJuggler Bridge">
+   <websocket_client clamp_large_arrays="0" max_array_size="500" url="ws://127.0.0.1:9090" use_timestamp="0">
+    <topics/>
+   </websocket_client>
+  </plugin>
+  <plugin ID="ROS2 Topic Subscriber">
+   <use_header_stamp value="false"/>
+   <discard_large_arrays value="true"/>
+   <max_array_size value="100"/>
+   <boolean_strings_to_number value="true"/>
+   <remove_suffix_from_strings value="true"/>
+   <selected_topics value="/fmu/in/airspeed;/fmu/in/global_trajectory_setpoint;/fmu/in/goto_setpoint;/fmu/in/offboard_control_mode;/fmu/in/register_ext_component_request;/fmu/in/sensor_baro;/fmu/in/trajectory_setpoint;/fmu/in/unregister_ext_component;/fmu/in/vehicle_attitude_setpoint;/fmu/in/vehicle_command;/fmu/in/vehicle_rates_setpoint;/fmu/in/vehicle_thrust_setpoint;/fmu/in/vehicle_torque_setpoint;/fmu/out/actuator_motors;/fmu/out/airspeed_validated;/fmu/out/airspeed_wind;/fmu/out/battery_status;/fmu/out/estimator_status_flags;/fmu/out/failsafe_flags;/fmu/out/home_position;/fmu/out/mode_completed;/fmu/out/position_setpoint_triplet;/fmu/out/register_ext_component_reply;/fmu/out/sensor_combined;/fmu/out/tecs_status;/fmu/out/timesync_status;/fmu/out/vehicle_attitude;/fmu/out/vehicle_command_ack;/fmu/out/vehicle_control_mode;/fmu/out/vehicle_global_position;/fmu/out/vehicle_gps_position;/fmu/out/vehicle_land_detected;/fmu/out/vehicle_local_position;/fmu/out/vehicle_odometry;/fmu/out/vehicle_status_v1;/fmu/out/wind;/mpc/debug/cbf/penalty;/mpc/debug/cbf/solver_status;/mpc/debug/cbf/tripped;/mpc/debug/control_effort;/mpc/debug/f_w_flu_achieved;/mpc/debug/f_w_flu_desired;/mpc/debug/solver_diagnostics/detect_offboard;/mpc/debug/solver_diagnostics/solver_fail;/mpc/debug/solver_diagnostics/solver_status;/mpc/debug/tracking_error_xyz;/mpc/state/plane_actual_pos;/mpc/state/solver_x0_pos;/mpc/traj_optimal_raw;/parameter_events;/px4_mpc/global_reference_path;/px4_viz/optimal_path;/px4_viz/state_comparison;/px4_viz/vehicle_path;/px4_viz/vehicle_pose;/rosout;/tf;/tf_static"/>
+  </plugin>
+  <plugin ID="UDP Server"/>
+  <plugin ID="WebSocket Server"/>
+  <plugin ID="ZMQ Subscriber"/>
+  <plugin ID="CSV/Parquet Exporter"/>
+  <plugin ID="Fast Fourier Transform"/>
+  <plugin ID="Quaternion to RPY"/>
+  <plugin ID="Reactive Script Editor">
+   <library code="--[[ Helper function to create a series from arrays
+
+ new_series: a series previously created with ScatterXY.new(name)
+ prefix:     prefix of the timeseries, before the index of the array
+ suffix_X:   suffix to complete the name of the series containing the X value. If [nil], use the index of the array.
+ suffix_Y:   suffix to complete the name of the series containing the Y value
+ timestamp:   usually the tracker_time variable
+              
+ Example:
+ 
+ Assuming we have multiple series in the form:
+ 
+   /trajectory/node.{X}/position/x
+   /trajectory/node.{X}/position/y
+   
+ where {N} is the index of the array (integer). We can create a reactive series from the array with:
+ 
+   new_series = ScatterXY.new(&quot;my_trajectory&quot;) 
+   CreateSeriesFromArray( new_series, &quot;/trajectory/node&quot;, &quot;position/x&quot;, &quot;position/y&quot;, tracker_time );
+--]]
+
+function CreateSeriesFromArray( new_series, prefix, suffix_X, suffix_Y, timestamp )
+  
+  --- clear previous values
+  new_series:clear()
+  
+  --- Append points to new_series
+  index = 0
+  while(true) do
+
+    x = index;
+    -- if not nil, get the X coordinate from a series
+    if suffix_X ~= nil then 
+      series_x = TimeseriesView.find( string.format( &quot;%s.%d/%s&quot;, prefix, index, suffix_X) )
+      if series_x == nil then break end
+      x = series_x:atTime(timestamp)	 
+    end
+    
+    series_y = TimeseriesView.find( string.format( &quot;%s.%d/%s&quot;, prefix, index, suffix_Y) )
+    if series_y == nil then break end 
+    y = series_y:atTime(timestamp)
+    
+    new_series:push_back(x,y)
+    index = index+1
+  end
+end
+
+--[[ Similar to the built-in function GetSeriesNames(), but select only the names with a give prefix. --]]
+
+function GetSeriesNamesByPrefix(prefix)
+  -- GetSeriesNames(9 is a built-in function
+  all_names = GetSeriesNames()
+  filtered_names = {}
+  for i, name in ipairs(all_names)  do
+    -- check the prefix
+    if name:find(prefix, 1, #prefix) then
+      table.insert(filtered_names, name);
+    end
+  end
+  return filtered_names
+end
+
+--[[ Modify an existing series, applying offsets to all their X and Y values
+
+ series: an existing timeseries, obtained with TimeseriesView.find(name)
+ delta_x: offset to apply to each x value
+ delta_y: offset to apply to each y value 
+  
+--]]
+
+function ApplyOffsetInPlace(series, delta_x, delta_y)
+  -- use C++ indices, not Lua indices
+  for index=0, series:size()-1 do
+    x,y = series:at(index)
+    series:set(index, x + delta_x, y + delta_y)
+  end
+end
+"/>
+   <scripts/>
+  </plugin>
+  <plugin ID="ROS2 Topic Re-Publisher"/>
+ </Plugins>
+ <!-- - - - - - - - - - - - - - - -->
+ <!-- - - - - - - - - - - - - - - -->
+ <customMathEquations>
+  <snippet language="PYTHON" name="airspeed_safety_colors">
+   <global></global>
+   <function>import math
+
+v_odom = math.sqrt(v3**2+v4**2+v5**2)
+code=0
+shield = value == 1
+solve_fail = v2!=0
+safe = v_odom&gt;10
+
+# Code 1: shield does its job properly
+if shield and safe: code = 1 # yellow
+# Code 2: shield failed
+if shield and not safe: code = 2 # red
+# Code 3: shield didn't trigger
+if not shield and not safe: code = 3 # pink
+# Code 4: minor solver failure
+if solve_fail and safe and shield: code = 4 # orange 
+# Code 5: major solver failure
+if solve_fail and not safe and shield: code = -1 # black
+
+return code</function>
+   <linked_source>/mpc/debug/cbf/tripped/data</linked_source>
+   <additional_sources>
+    <v1>/mpc/debug/cbf/tripped/data</v1>
+    <v2>/mpc/debug/cbf/solver_status/data</v2>
+    <v3>/fmu/out/vehicle_odometry/velocity[0]</v3>
+    <v4>/fmu/out/vehicle_odometry/velocity[1]</v4>
+    <v5>/fmu/out/vehicle_odometry/velocity[2]</v5>
+   </additional_sources>
+  </snippet>
+  <snippet language="PYTHON" name="v_odom">
+   <global></global>
+   <function>import math
+return math.sqrt(value**2+v2**2+v3**2)</function>
+   <linked_source>/fmu/out/vehicle_odometry/velocity[0]</linked_source>
+   <additional_sources>
+    <v1>/fmu/out/vehicle_odometry/velocity[0]</v1>
+    <v2>/fmu/out/vehicle_odometry/velocity[1]</v2>
+    <v3>/fmu/out/vehicle_odometry/velocity[2]</v3>
+   </additional_sources>
+  </snippet>
+  <snippet language="LUA" name="shield_triggered">
+   <global></global>
+   <function>return value</function>
+   <linked_source>/mpc/debug/cbf/tripped/data</linked_source>
+   <additional_sources>
+    <v1>/mpc/debug/cbf/tripped/data</v1>
+   </additional_sources>
+  </snippet>
+ </customMathEquations>
+ <snippets/>
+ <colorMaps>
+  <colorMap name="airspeed_safety_colors">if v == 1 then 
+    return &quot;#54ffff00&quot;
+elseif v == 2 then 
+    return &quot;#54ff0000&quot;
+elseif v == 3 then 
+    return &quot;#54ff69b4&quot;
+elseif v == 4 then 
+    return &quot;#54ffa500&quot;
+elseif v == -1 then 
+    return &quot;#54000000&quot;
+else 
+    return &quot;#00000000&quot;
+end</colorMap>
+ </colorMaps>
+ <!-- - - - - - - - - - - - - - - -->
+</root>
